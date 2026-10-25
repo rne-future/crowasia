@@ -23,13 +23,7 @@ export async function getActor(
     return null;
   }
 
-  // Query profiles and user_roles from Drizzle DB
-  await dbClient
-    .select()
-    .from(profiles)
-    .where(eq(profiles.id, user.id))
-    .limit(1);
-
+  // Query user_roles from Drizzle DB
   const roleRows = await dbClient
     .select({ role: userRoles.role })
     .from(userRoles)
