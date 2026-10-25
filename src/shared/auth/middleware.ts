@@ -41,8 +41,11 @@ export async function authMiddleware(
   const intlResponse = intlMiddleware(request);
   const response = await updateSession(request, intlResponse);
 
-  // Enforce private, no-store on interactive reader routes
-  if (request.nextUrl.pathname.includes("/read/")) {
+  // Enforce private, no-store on interactive reader and user dashboard routes
+  if (
+    request.nextUrl.pathname.includes("/read/") ||
+    request.nextUrl.pathname.includes("/dashboard")
+  ) {
     response.headers.set("Cache-Control", "private, no-store");
   }
 

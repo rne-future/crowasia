@@ -1,4 +1,4 @@
-import { and, eq, isNull, or, gt } from "drizzle-orm";
+import { and, eq, isNull, or, gt, inArray } from "drizzle-orm";
 import { db as defaultDb } from "@/shared/db/client";
 import { books, chapters, chapterVariants } from "@/shared/db/schema/catalog";
 import { searchPublic, searchPrivate } from "@/shared/db/schema/search";
@@ -280,6 +280,7 @@ export async function searchTopics(
     };
   }
 
+  // shortcut: in-memory table scan with pre-filtered access suitable for fixed 3-book catalog (45 chapters); upgrade to sql'document @@ websearch_to_tsquery(...)' when catalog expands
   // 2. General Full-Text Search
   const queryTerms = trimmed.split(/\s+/).filter(Boolean);
   const results: SearchResultItem[] = [];
@@ -483,6 +484,7 @@ export async function getUserDashboard(
       .where(
         and(
           isNull(orders.buyerUserId),
+          eq(orders.buyerEmail, normalizedEmail),
           or(eq(orders.status, "PAID"), eq(orders.status, "paid"))
         )
       )) as OrderRow[];
@@ -495,18 +497,24 @@ export async function getUserDashboard(
         o.buyerEmail.trim().toLowerCase() === normalizedEmail
     );
 
-    const allOrderItems = (await dbOrTx.select().from(orderItems)) as OrderItemRow[];
+    if (unclaimedMatching.length > 0) {
+      const matchingOrderIds = unclaimedMatching.map((o) => o.id);
+      const matchingOrderItems = (await dbOrTx
+        .select()
+        .from(orderItems)
+        .where(inArray(orderItems.orderId, matchingOrderIds))) as OrderItemRow[];
 
-    unclaimedOrders = unclaimedMatching.map((o) => {
-      const items = allOrderItems.filter((item) => item.orderId === o.id);
-      const bookNames = items.map((i) => i.bookTitleSnapshot || "Buku");
-      return {
-        orderId: o.id,
-        createdAt: o.createdAt ? new Date(o.createdAt) : new Date(),
-        amount: BigInt(o.payable ?? o.subtotal ?? 0),
-        books: bookNames,
-      };
-    });
+      unclaimedOrders = unclaimedMatching.map((o) => {
+        const items = matchingOrderItems.filter((item) => item.orderId === o.id);
+        const bookNames = items.map((i) => i.bookTitleSnapshot || "Buku");
+        return {
+          orderId: o.id,
+          createdAt: o.createdAt ? new Date(o.createdAt) : new Date(),
+          amount: BigInt(o.payable ?? o.subtotal ?? 0),
+          books: bookNames,
+        };
+      });
+    }
   }
 
   return {

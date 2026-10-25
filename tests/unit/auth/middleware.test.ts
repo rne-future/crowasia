@@ -39,4 +39,11 @@ describe("Auth Middleware", () => {
 
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   });
+
+  it("authMiddleware sets private, no-store Cache-Control on dashboard routes", async () => {
+    const request = new NextRequest("https://crowasia.test/id/dashboard");
+    const response = await authMiddleware(request);
+
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  });
 });

@@ -25,17 +25,28 @@ export function SearchDialog({ locale = "id", triggerButton = true }: SearchDial
   const [results, setResults] = useState<SearchResultItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
 
   const handleClose = useCallback(() => {
     setIsOpen(false);
     setQuery("");
     setResults([]);
+    setSelectedIndex(-1);
     setHasSearched(false);
   }, []);
 
-  // Keyboard shortcut: Cmd+K or Ctrl+K to open, Escape to close
+  const handleSelectResult = useCallback(
+    (item: SearchResultItem) => {
+      handleClose();
+      router.push(item.href);
+    },
+    [handleClose, router]
+  );
+
+  // Keyboard shortcut: Cmd+K / Ctrl+K to open, Escape to close, Arrow keys & Enter to navigate
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -44,20 +55,42 @@ export function SearchDialog({ locale = "id", triggerButton = true }: SearchDial
           if (prev) {
             setQuery("");
             setResults([]);
+            setSelectedIndex(-1);
             setHasSearched(false);
             return false;
           }
           return true;
         });
-      } else if (e.key === "Escape" && isOpen) {
-        e.preventDefault();
-        handleClose();
+      } else if (isOpen) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          handleClose();
+        } else if (e.key === "ArrowDown" && results.length > 0) {
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev < results.length - 1 ? prev + 1 : 0));
+        } else if (e.key === "ArrowUp" && results.length > 0) {
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev > 0 ? prev - 1 : results.length - 1));
+        } else if (e.key === "Enter" && selectedIndex >= 0 && selectedIndex < results.length) {
+          e.preventDefault();
+          handleSelectResult(results[selectedIndex]);
+        }
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, handleClose]);
+  }, [isOpen, handleClose, results, selectedIndex, handleSelectResult]);
+
+  // Scroll active item into view
+  useEffect(() => {
+    if (selectedIndex >= 0 && resultsContainerRef.current) {
+      const selectedEl = resultsContainerRef.current.querySelector<HTMLElement>(
+        `[data-result-index="${selectedIndex}"]`
+      );
+      selectedEl?.scrollIntoView({ block: "nearest" });
+    }
+  }, [selectedIndex]);
 
   // Focus input when modal opens
   useEffect(() => {
@@ -73,6 +106,7 @@ export function SearchDialog({ locale = "id", triggerButton = true }: SearchDial
       const trimmed = searchTerm.trim();
       if (trimmed.length < 2) {
         setResults([]);
+        setSelectedIndex(-1);
         setIsLoading(false);
         setHasSearched(false);
         return;
@@ -91,13 +125,17 @@ export function SearchDialog({ locale = "id", triggerButton = true }: SearchDial
         );
         if (res.ok) {
           const data: SearchResultDto = await res.json();
-          setResults(data.results || []);
+          const items = data.results || [];
+          setResults(items);
+          setSelectedIndex(items.length > 0 ? 0 : -1);
         } else {
           setResults([]);
+          setSelectedIndex(-1);
         }
       } catch (err) {
         console.error("Search error:", err);
         setResults([]);
+        setSelectedIndex(-1);
       } finally {
         setIsLoading(false);
       }
@@ -118,11 +156,6 @@ export function SearchDialog({ locale = "id", triggerButton = true }: SearchDial
     setQuery(chip);
     performSearch(chip);
     inputRef.current?.focus();
-  };
-
-  const handleSelectResult = (item: SearchResultItem) => {
-    handleClose();
-    router.push(item.href);
   };
 
   return (
@@ -195,6 +228,7 @@ export function SearchDialog({ locale = "id", triggerButton = true }: SearchDial
                   onClick={() => {
                     setQuery("");
                     setResults([]);
+                    setSelectedIndex(-1);
                     inputRef.current?.focus();
                   }}
                   className="text-xs text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
@@ -230,13 +264,26 @@ export function SearchDialog({ locale = "id", triggerButton = true }: SearchDial
             </div>
 
             {/* Results List */}
-            <div className="overflow-y-auto p-3 space-y-2 flex-1">
+            <div
+              ref={resultsContainerRef}
+              role="listbox"
+              aria-label="Hasil pencarian"
+              className="overflow-y-auto p-3 space-y-2 flex-1"
+            >
               {results.length > 0 ? (
-                results.map((item) => (
+                results.map((item, idx) => (
                   <div
                     key={`${item.bookSlug}-${item.chapterSlug}`}
+                    data-result-index={idx}
+                    role="option"
+                    aria-selected={selectedIndex === idx}
                     onClick={() => handleSelectResult(item)}
-                    className="group p-3 rounded-xl hover:bg-neutral-100 dark:hover:bg-neutral-800/70 border border-transparent hover:border-neutral-200 dark:hover:border-neutral-700 cursor-pointer transition-all"
+                    onMouseEnter={() => setSelectedIndex(idx)}
+                    className={`group p-3 rounded-xl cursor-pointer transition-all border ${
+                      selectedIndex === idx
+                        ? "bg-neutral-100 dark:bg-neutral-800/90 border-indigo-500/60 dark:border-indigo-500/60 ring-1 ring-indigo-500/30"
+                        : "hover:bg-neutral-100 dark:hover:bg-neutral-800/70 border-transparent hover:border-neutral-200 dark:hover:border-neutral-700"
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-2 mb-1">
                       <div>

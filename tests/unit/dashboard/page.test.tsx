@@ -216,6 +216,35 @@ describe("Dashboard Service & View (TDD)", () => {
       expect(data.unclaimedOrders[0].amount).toBe(149000n);
       expect(data.unclaimedOrders[0].books).toContain("Buku 1: Mahir Memimpin Tim");
     });
+
+    it("does not query order_items when there are no matching unclaimed guest orders", async () => {
+      mockOrders.push({
+        id: "ord-other-email",
+        buyerUserId: null,
+        buyerEmail: "other@example.com",
+        status: "PAID",
+        payable: 59000n,
+        createdAt: new Date("2026-10-21"),
+      });
+
+      const tablesQueried: any[] = [];
+      const origSelect = mockDb.select;
+      mockDb.select = vi.fn().mockImplementation((fields?: any) => {
+        const builder = origSelect(fields);
+        const origFrom = builder.from;
+        builder.from = vi.fn().mockImplementation((t: any) => {
+          tablesQueried.push(t);
+          return origFrom(t);
+        });
+        return builder;
+      });
+
+      const data = await getUserDashboard(userId, userEmail, mockDb);
+
+      expect(data.unclaimedOrders).toEqual([]);
+      expect(tablesQueried).toContain(orders);
+      expect(tablesQueried).not.toContain(orderItems);
+    });
   });
 
   describe("DashboardView Component", () => {
