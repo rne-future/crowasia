@@ -1,24 +1,51 @@
-const envSchema = {
-  APP_ENV: process.env.APP_ENV as "development" | "staging" | "production" | undefined,
+export interface Env {
+  APP_ENV: "development" | "staging" | "production";
+  SUPABASE_URL: string;
+  SUPABASE_ANON_KEY: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
+  DATABASE_URL: string;
+}
+
+const rawEnv = {
+  APP_ENV: (process.env.APP_ENV as Env["APP_ENV"]) || "development",
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
+  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   DATABASE_URL: process.env.DATABASE_URL,
-} as const;
+};
 
-type EnvKey = keyof typeof envSchema;
+const required: (keyof Pick<Env, "SUPABASE_URL" | "SUPABASE_ANON_KEY" | "DATABASE_URL">)[] = [
+  "SUPABASE_URL",
+  "SUPABASE_ANON_KEY",
+  "DATABASE_URL",
+];
 
-const required: EnvKey[] = ["SUPABASE_URL", "SUPABASE_ANON_KEY", "DATABASE_URL"];
-
-function validateEnv() {
-  const missing = required.filter((key) => !envSchema[key]);
+function validateEnv(): Env {
+  const missing = required.filter((key) => !rawEnv[key]);
   if (missing.length > 0) {
     throw new Error(`Missing required environment variables: ${missing.join(", ")}`);
   }
-  return envSchema as { [K in EnvKey]: string };
+  return {
+    APP_ENV: rawEnv.APP_ENV,
+    SUPABASE_URL: rawEnv.SUPABASE_URL!,
+    SUPABASE_ANON_KEY: rawEnv.SUPABASE_ANON_KEY!,
+    SUPABASE_SERVICE_ROLE_KEY: rawEnv.SUPABASE_SERVICE_ROLE_KEY,
+    DATABASE_URL: rawEnv.DATABASE_URL!,
+  };
 }
 
-// Only validate on server at runtime, not during build
-export const env =
-  typeof window === "undefined" && process.env.NODE_ENV !== "test"
+const isBuildTime =
+  process.env.NEXT_PHASE === "phase-production-build" ||
+  process.env.npm_lifecycle_event === "build";
+
+// Only validate on server at runtime, not during build or tests
+export const env: Env =
+  typeof window === "undefined" && process.env.NODE_ENV !== "test" && !isBuildTime
     ? validateEnv()
-    : envSchema;
+    : {
+        APP_ENV: rawEnv.APP_ENV,
+        SUPABASE_URL: rawEnv.SUPABASE_URL || "http://localhost:54321",
+        SUPABASE_ANON_KEY: rawEnv.SUPABASE_ANON_KEY || "mock-anon-key",
+        SUPABASE_SERVICE_ROLE_KEY: rawEnv.SUPABASE_SERVICE_ROLE_KEY,
+        DATABASE_URL: rawEnv.DATABASE_URL || "postgres://postgres:postgres@localhost:5432/crowasia",
+      };
