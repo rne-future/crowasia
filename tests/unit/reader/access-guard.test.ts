@@ -304,5 +304,14 @@ describe("Reader Access Guard & Entitlement Verification (TDD)", () => {
       expect(payload?.navigation.prev?.slug).toBe("ch-13");
       expect(payload?.navigation.next).toBeUndefined();
     });
+
+    it("falls back to querying latest revision by createdAt desc with limit(1) when publishedRevisionId is missing", async () => {
+      mockVariants[0].publishedRevisionId = null;
+
+      const payload = await getChapterForReading(bookSlug, "ch-0", "id", "standard", readerActor, mockDb);
+      expect(payload).not.toBeNull();
+      expect(payload?.isAllowed).toBe(true);
+      expect(payload?.html).toContain("Bab 0: Judul Bab 0");
+    });
   });
 });

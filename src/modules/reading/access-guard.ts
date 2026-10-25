@@ -1,4 +1,4 @@
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import { db as defaultDb } from "@/shared/db/client";
 import { books, chapters, chapterVariants } from "@/shared/db/schema/catalog";
 import { contentRevisions, publishedPreviews } from "@/shared/db/schema/content";
@@ -137,7 +137,12 @@ export async function getChapterForReading(
         .select()
         .from(contentRevisions)
         .where(eq(contentRevisions.variantId, matchingVariant.id));
-      const latestRows = typeof latestQuery.limit === "function" ? await latestQuery.limit(1) : await latestQuery;
+      const orderedQuery =
+        typeof latestQuery.orderBy === "function"
+          ? latestQuery.orderBy(desc(contentRevisions.createdAt))
+          : latestQuery;
+      const latestRows =
+        typeof orderedQuery.limit === "function" ? await orderedQuery.limit(1) : await orderedQuery;
       revision = Array.isArray(latestRows) ? (latestRows[0] as RevisionRow) : null;
     }
   }

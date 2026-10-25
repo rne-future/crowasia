@@ -6,23 +6,26 @@ export interface CopyScriptButtonProps {
   text: string;
   label?: string;
   className?: string;
+  getText?: () => string;
 }
 
 export function CopyScriptButton({
   text,
   label = "Salin Skrip",
   className = "",
+  getText,
 }: CopyScriptButtonProps) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
     try {
+      const textToCopy = getText ? getText() : text;
       if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
+        await navigator.clipboard.writeText(textToCopy);
       } else {
         // Fallback for non-secure contexts
         const textarea = document.createElement("textarea");
-        textarea.value = text;
+        textarea.value = textToCopy;
         textarea.style.position = "fixed";
         textarea.style.opacity = "0";
         document.body.appendChild(textarea);
@@ -35,7 +38,7 @@ export function CopyScriptButton({
     } catch {
       // Graceful fallback
     }
-  }, [text]);
+  }, [text, getText]);
 
   return (
     <div className="inline-flex items-center gap-2">

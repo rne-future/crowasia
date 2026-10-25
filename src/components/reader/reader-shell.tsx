@@ -3,6 +3,9 @@
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import type { ChapterReadPayload } from "@/modules/reading/types";
+import { CopyScriptButton } from "./copy-script-button";
+import { FootnotesPopover } from "./footnotes-popover";
+import { ReaderContentEnhancer } from "./reader-content-enhancer";
 
 export interface ReaderShellProps {
   payload: ChapterReadPayload;
@@ -148,6 +151,30 @@ export function ReaderShell({
               </button>
             </div>
 
+            {/* Salin Skrip Quick Action */}
+            <CopyScriptButton
+              text=""
+              getText={() => {
+                if (typeof document === "undefined") return "";
+                const scriptEls = document.querySelectorAll(
+                  "#reader-content details, #reader-content blockquote.script-box, #reader-content .script-box, #reader-content .script-block, #reader-content [data-script-id]"
+                );
+                if (scriptEls.length === 0) {
+                  return document.querySelector("#reader-content")?.textContent?.trim() || "";
+                }
+                return Array.from(scriptEls)
+                  .map((el) => {
+                    const clone = el.cloneNode(true) as HTMLElement;
+                    clone.querySelector(".script-copy-slot")?.remove();
+                    return clone.textContent?.trim() || "";
+                  })
+                  .filter(Boolean)
+                  .join("\n\n---\n\n");
+              }}
+              label="Salin Skrip"
+              className="hidden sm:inline-flex"
+            />
+
             {/* Zen Mode Button */}
             <button
               type="button"
@@ -257,6 +284,9 @@ export function ReaderShell({
 
         {/* Reading Article Column (Optimal 60-75 character measure) */}
         <main className={`flex-1 mx-auto w-full transition-all ${zenMode ? "max-w-3xl" : "max-w-2xl"}`}>
+          {/* Reader Content Enhancer: attaches script copy buttons & connects footnotes */}
+          <ReaderContentEnhancer containerSelector="#reader-content" />
+
           {/* Reading Column with chosen font size */}
           <div className={fontSizeClass}>{children}</div>
 
