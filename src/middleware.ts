@@ -1,8 +1,8 @@
-import createMiddleware from "next-intl/middleware";
-import { routing } from "@/shared/i18n/routing";
+import { authMiddleware } from "@/shared/auth/middleware";
 
-export default createMiddleware(routing);
+export default authMiddleware;
 
 export const config = {
   matcher: ["/((?!api|_next|_vercel|.*\\..*).*)"],
 };
+
