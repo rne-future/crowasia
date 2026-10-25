@@ -12,7 +12,9 @@ node_modules/
 out/
 
 # Private content — not committed to repo
+.agents
 .agents/
+books
 books/
 docs/
 .creds/
