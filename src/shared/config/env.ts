@@ -4,6 +4,7 @@ export interface Env {
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   DATABASE_URL: string;
+  CRON_SECRET?: string;
 }
 
 const rawEnv = {
@@ -12,6 +13,7 @@ const rawEnv = {
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   DATABASE_URL: process.env.DATABASE_URL,
+  CRON_SECRET: process.env.CRON_SECRET,
 };
 
 const required: (keyof Pick<Env, "SUPABASE_URL" | "SUPABASE_ANON_KEY" | "DATABASE_URL">)[] = [
