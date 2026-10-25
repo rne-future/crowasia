@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.staging
+.env.production
+
+# Next.js
+.next/
+out/
+
+# Private content — not committed to repo
+.agents/
+books/
+docs/
+
+# Build
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Worktrees
+.worktrees/
+
+# Misc
+*.log
+*.tsbuildinfo
