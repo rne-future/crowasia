@@ -33,6 +33,7 @@ function validateEnv(): Env {
     SUPABASE_ANON_KEY: rawEnv.SUPABASE_ANON_KEY!,
     SUPABASE_SERVICE_ROLE_KEY: rawEnv.SUPABASE_SERVICE_ROLE_KEY,
     DATABASE_URL: rawEnv.DATABASE_URL!,
+    CRON_SECRET: rawEnv.CRON_SECRET,
   };
 }
 
@@ -50,4 +51,5 @@ export const env: Env =
         SUPABASE_ANON_KEY: rawEnv.SUPABASE_ANON_KEY || "mock-anon-key",
         SUPABASE_SERVICE_ROLE_KEY: rawEnv.SUPABASE_SERVICE_ROLE_KEY,
         DATABASE_URL: rawEnv.DATABASE_URL || "postgres://postgres:postgres@localhost:5432/crowasia",
+        CRON_SECRET: process.env.CRON_SECRET,
       };

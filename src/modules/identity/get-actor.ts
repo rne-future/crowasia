@@ -38,9 +38,14 @@ export async function getActor(
       : new Date();
 
   // Invariant: verifiedEmail MUST come from user.email (auth.users), NEVER from editable profile fields.
+  const isEmailConfirmed = Boolean(
+    user.email_confirmed_at ?? (user as { confirmed_at?: string }).confirmed_at
+  );
+  const verifiedEmail = isEmailConfirmed && user.email ? user.email : "";
+
   return {
     userId: user.id,
-    verifiedEmail: user.email ?? "",
+    verifiedEmail,
     roles,
     authTime,
   };

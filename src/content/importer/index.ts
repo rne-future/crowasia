@@ -6,6 +6,7 @@ import { compileChapter } from "@/content/compiler";
 import { splitBook } from "./split-chapters";
 import { generateManifest, loadManifest } from "./manifest-generator";
 import type { ImportOptions, ImportReport } from "./types";
+import type { DbOrTx } from "@/shared/jobs/types";
 
 export * from "./types";
 export * from "./split-chapters";
@@ -31,7 +32,7 @@ function resolveSourcePath(
 
 export async function importBook(
   opts: ImportOptions,
-  dbOrTx?: unknown
+  dbOrTx?: DbOrTx
 ): Promise<ImportReport> {
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -87,11 +88,10 @@ export async function importBook(
 
     // 4. If not dry run, persist to database
     if (!opts.dryRun) {
-      const dbInstance =
-        (dbOrTx as typeof import("@/shared/db/client").db) ??
-        (await import("@/shared/db/client")).db;
+      const dbInstance: DbOrTx =
+        dbOrTx ?? (await import("@/shared/db/client")).db;
 
-      const persistOperations = async (tx: typeof dbInstance) => {
+      const persistOperations = async (tx: DbOrTx): Promise<void> => {
         // A. Ensure book exists
         const existingBooks = await tx
           .select()
@@ -203,7 +203,7 @@ export async function importBook(
       };
 
       if ("transaction" in dbInstance && typeof dbInstance.transaction === "function") {
-        await dbInstance.transaction(persistOperations as any);
+        await dbInstance.transaction(persistOperations);
       } else {
         await persistOperations(dbInstance);
       }

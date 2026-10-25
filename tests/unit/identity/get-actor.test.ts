@@ -67,6 +67,7 @@ describe("Identity Module", () => {
       mockAuthUser = {
         id: "11111111-1111-1111-1111-111111111111",
         email: "editor@crowasia.test",
+        email_confirmed_at: "2026-10-25T10:00:00.000Z",
         last_sign_in_at: "2026-10-25T10:00:00.000Z",
       };
       mockProfileRows = [
@@ -93,6 +94,7 @@ describe("Identity Module", () => {
       mockAuthUser = {
         id: "22222222-2222-2222-2222-222222222222",
         email: "verified-auth@crowasia.test",
+        email_confirmed_at: "2026-10-25T08:00:00.000Z",
         created_at: "2026-10-25T08:00:00.000Z",
       };
       // Even if a profile mock contains a spoofed email, getActor MUST ignore it
@@ -112,10 +114,43 @@ describe("Identity Module", () => {
       expect(actor?.verifiedEmail).not.toBe("spoofed@attacker.test");
     });
 
+    it("returns empty verifiedEmail when user email is unconfirmed", async () => {
+      mockAuthUser = {
+        id: "55555555-5555-5555-5555-555555555555",
+        email: "unconfirmed@crowasia.test",
+        email_confirmed_at: null,
+        created_at: "2026-10-25T09:00:00.000Z",
+      };
+      mockProfileRows = [];
+      mockRoleRows = [{ role: "reader" }];
+
+      const actor = await getActor();
+
+      expect(actor).not.toBeNull();
+      expect(actor?.verifiedEmail).toBe("");
+    });
+
+    it("recognizes confirmed_at as fallback for email confirmation", async () => {
+      mockAuthUser = {
+        id: "66666666-6666-6666-6666-666666666666",
+        email: "legacy@crowasia.test",
+        confirmed_at: "2026-10-25T09:00:00.000Z",
+        created_at: "2026-10-25T09:00:00.000Z",
+      };
+      mockProfileRows = [];
+      mockRoleRows = [{ role: "reader" }];
+
+      const actor = await getActor();
+
+      expect(actor).not.toBeNull();
+      expect(actor?.verifiedEmail).toBe("legacy@crowasia.test");
+    });
+
     it("returns Actor with empty roles when user has no roles in DB", async () => {
       mockAuthUser = {
         id: "33333333-3333-3333-3333-333333333333",
         email: "noroles@crowasia.test",
+        email_confirmed_at: "2026-10-25T09:00:00.000Z",
         created_at: "2026-10-25T09:00:00.000Z",
       };
       mockProfileRows = [];
@@ -156,6 +191,7 @@ describe("Identity Module", () => {
       mockAuthUser = {
         id: "44444444-4444-4444-4444-444444444444",
         email: "valid@crowasia.test",
+        email_confirmed_at: "2026-10-25T12:00:00.000Z",
         last_sign_in_at: "2026-10-25T12:00:00.000Z",
       };
       mockRoleRows = [{ role: "admin" }];
@@ -164,6 +200,7 @@ describe("Identity Module", () => {
 
       expect(actor.userId).toBe("44444444-4444-4444-4444-444444444444");
       expect(actor.roles).toEqual(["admin"]);
+      expect(actor.verifiedEmail).toBe("valid@crowasia.test");
     });
   });
 
