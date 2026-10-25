@@ -123,20 +123,29 @@ const {
     update: vi.fn().mockImplementation((table: any) => ({
       set: vi.fn().mockImplementation((setVals: any) => ({
         where: vi.fn().mockImplementation((_condition: any) => {
+          const updatedRows: any[] = [];
           if (table === purchaseClaims) {
             for (const c of mClaims) {
+              if (setVals.usedAt && c.usedAt) {
+                continue;
+              }
               Object.assign(c, setVals);
+              updatedRows.push(c);
             }
           } else if (table === orders) {
             for (const o of mOrders) {
               Object.assign(o, setVals);
+              updatedRows.push(o);
             }
           } else if (table === purchaseGrants) {
             for (const g of mGrants) {
               Object.assign(g, setVals);
+              updatedRows.push(g);
             }
           }
-          return Promise.resolve();
+          const res: any = Promise.resolve(updatedRows);
+          res.returning = vi.fn().mockImplementation(() => Promise.resolve(updatedRows));
+          return res;
         }),
       })),
     })),
@@ -324,6 +333,12 @@ describe("Guest Purchase Claims Engine (TDD)", () => {
         requestPurchaseClaim(orderId, "wrong.email@example.com", mockDb)
       ).rejects.toThrow(ClaimForbiddenError);
     });
+
+    it("executes claim operations atomically inside a database transaction", async () => {
+      mockDb.transaction.mockClear();
+      await requestPurchaseClaim(orderId, buyerEmail, mockDb);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe("claimPurchase", () => {
@@ -394,6 +409,27 @@ describe("Guest Purchase Claims Engine (TDD)", () => {
       await expect(
         claimPurchase(validToken, guestActorWithMatchingEmail, mockDb)
       ).rejects.toThrow(ClaimForbiddenError);
+    });
+
+    it("throws ClaimForbiddenError when CAS update affects 0 rows due to concurrent race condition", async () => {
+      const originalUpdate = mockDb.update;
+      mockDb.update = vi.fn().mockImplementationOnce(() => ({
+        set: vi.fn().mockImplementation(() => ({
+          where: vi.fn().mockImplementation(() => {
+            const res: any = Promise.resolve([]);
+            res.returning = vi.fn().mockResolvedValue([]);
+            return res;
+          }),
+        })),
+      }));
+
+      try {
+        await expect(
+          claimPurchase(validToken, guestActorWithMatchingEmail, mockDb)
+        ).rejects.toThrow("Claim token has already been used");
+      } finally {
+        mockDb.update = originalUpdate;
+      }
     });
 
     it("throws ClaimForbiddenError if claim token has expired", async () => {

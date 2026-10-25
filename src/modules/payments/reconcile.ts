@@ -33,8 +33,8 @@ export interface ReconcileOptions {
 
 /**
  * Reconciles open and pending orders against authoritative Mayar gateway invoices.
- * 1. Scans orders in AWAITING_PAYMENT, CREATE_UNKNOWN, or recent EXPIRED status with an invoiceId.
- * 2. Filters orders created at least minAgeMinutes ago (default: 5m) up to maxBatchSize.
+ * 1. Scans orders in AWAITING_PAYMENT, CREATE_UNKNOWN, or pending status with an invoiceId.
+ * 2. Filters orders created at least minAgeMinutes ago (default: 15m) up to maxBatchSize.
  * 3. Inspects authoritative Mayar invoice status:
  *    - If paid: verifies invoice and executes atomic payment settlement.
  *    - If expired or closed: marks order as EXPIRED.
@@ -58,7 +58,7 @@ export async function reconcileOpenOrders(
   let maxBatchSize = 50;
   let dbOrTx: DbOrTx = defaultDb;
   let clientOverride: MayarClient | undefined;
-  let minAgeMinutes = 5;
+  let minAgeMinutes = 15;
   let settler = settleVerifiedPayment;
 
   if (typeof optsOrBatchSize === "object" && optsOrBatchSize !== null) {
@@ -86,8 +86,6 @@ export async function reconcileOpenOrders(
       "AWAITING_PAYMENT",
       "CREATE_UNKNOWN",
       "pending",
-      "EXPIRED",
-      "expired",
     ]),
   ];
 

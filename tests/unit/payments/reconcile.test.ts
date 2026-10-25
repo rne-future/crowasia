@@ -9,6 +9,32 @@ import { GET as cronGetRoute, POST as cronPostRoute } from "@/app/api/cron/jobs/
 
 const { mockOrders, mockDb } = vi.hoisted(() => {
   const mOrders: any[] = [];
+
+  function filterOrders(ordersList: any[], condition: any) {
+    let cutoffDate: Date | null = null;
+    const allowedStatuses = ["AWAITING_PAYMENT", "CREATE_UNKNOWN", "pending"];
+
+    function findDate(obj: any): Date | null {
+      if (!obj) return null;
+      if (obj instanceof Date) return obj;
+      if (obj.value instanceof Date) return obj.value;
+      if (Array.isArray(obj.queryChunks)) {
+        for (const c of obj.queryChunks) {
+          const res = findDate(c);
+          if (res) return res;
+        }
+      }
+      return null;
+    }
+    cutoffDate = findDate(condition);
+
+    return ordersList.filter((o) => {
+      if (!allowedStatuses.includes(o.status)) return false;
+      if (cutoffDate && o.createdAt > cutoffDate) return false;
+      return true;
+    });
+  }
+
   const db: any = {
     select: vi.fn().mockImplementation(() => ({
       from: vi.fn().mockImplementation((table: any) => ({
@@ -16,18 +42,12 @@ const { mockOrders, mockDb } = vi.hoisted(() => {
           const queryObj: any = {
             orderBy: vi.fn().mockImplementation(() => queryObj),
             limit: vi.fn().mockImplementation((limitCount: number) => {
-              const now = Date.now();
-              const filtered = mOrders.filter(
-                (o) => now - o.createdAt.getTime() >= 5 * 60 * 1000
-              );
+              const filtered = filterOrders(mOrders, condition);
               return Promise.resolve(filtered.slice(0, limitCount));
             }),
           };
           queryObj.then = (resolve: any) => {
-            const now = Date.now();
-            const filtered = mOrders.filter(
-              (o) => now - o.createdAt.getTime() >= 5 * 60 * 1000
-            );
+            const filtered = filterOrders(mOrders, condition);
             return resolve(filtered);
           };
           return queryObj;
@@ -84,6 +104,21 @@ vi.mock("@/shared/jobs/process-outbox", () => ({
   }),
 }));
 
+vi.mock("@/modules/payments/adapter", async (importOriginal) => {
+  const actual = await importOriginal<any>();
+  return {
+    ...actual,
+    getMayarClient: vi.fn().mockImplementation(() => ({
+      environment: "sandbox",
+      getInvoice: vi.fn().mockResolvedValue({
+        id: "mock-inv",
+        status: "unpaid",
+      }),
+      verifyPayment: vi.fn(),
+    })),
+  };
+});
+
 describe("Payment Reconciliation (TDD)", () => {
   const orderIdPaid = "order-paid-1111";
   const orderIdExpired = "order-exp-2222";
@@ -97,7 +132,7 @@ describe("Payment Reconciliation (TDD)", () => {
     vi.clearAllMocks();
     process.env.CRON_SECRET = "test-cron-secret-123";
 
-    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const twentyMinutesAgo = new Date(Date.now() - 20 * 60 * 1000);
     const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
 
     mockOrders.length = 0;
@@ -120,8 +155,8 @@ describe("Payment Reconciliation (TDD)", () => {
         invoiceId: "inv-paid-1111",
         transactionId: null,
         paidAt: null,
-        createdAt: tenMinutesAgo,
-        updatedAt: tenMinutesAgo,
+        createdAt: twentyMinutesAgo,
+        updatedAt: twentyMinutesAgo,
       },
       {
         id: orderIdExpired,
@@ -141,8 +176,8 @@ describe("Payment Reconciliation (TDD)", () => {
         invoiceId: "inv-exp-2222",
         transactionId: null,
         paidAt: null,
-        createdAt: tenMinutesAgo,
-        updatedAt: tenMinutesAgo,
+        createdAt: twentyMinutesAgo,
+        updatedAt: twentyMinutesAgo,
       },
       {
         id: orderIdPending,
@@ -162,8 +197,8 @@ describe("Payment Reconciliation (TDD)", () => {
         invoiceId: "inv-pend-3333",
         transactionId: null,
         paidAt: null,
-        createdAt: tenMinutesAgo,
-        updatedAt: tenMinutesAgo,
+        createdAt: twentyMinutesAgo,
+        updatedAt: twentyMinutesAgo,
       },
       {
         id: orderIdRecent,
@@ -246,7 +281,7 @@ describe("Payment Reconciliation (TDD)", () => {
   });
 
   describe("reconcileOpenOrders", () => {
-    it("scans open orders older than 5 minutes and settles paid invoices", async () => {
+    it("scans open orders older than 15 minutes by default and settles paid invoices", async () => {
       const settleSpy = vi.fn().mockResolvedValue({
         settled: true,
         orderId: orderIdPaid,
@@ -257,17 +292,80 @@ describe("Payment Reconciliation (TDD)", () => {
         maxBatchSize: 50,
         dbOrTx: mockDb,
         client: mockMayarClient,
-        minAgeMinutes: 5,
         settler: settleSpy,
       });
 
-      expect(report.scannedCount).toBe(3); // 3 orders older than 5m
+      expect(report.scannedCount).toBe(3); // 3 orders older than 15m (recent order skipped)
       expect(report.settledCount).toBe(1);
       expect(report.expiredCount).toBe(1);
       expect(report.errors).toEqual([]);
 
       expect(settleSpy).toHaveBeenCalledTimes(1);
       expect(mockDb.update).toHaveBeenCalledWith(orders);
+    });
+
+    it("scans all open orders including recent ones when minAgeMinutes is 0", async () => {
+      const settleSpy = vi.fn().mockResolvedValue({
+        settled: true,
+        orderId: orderIdPaid,
+        grantsCount: 1,
+      });
+
+      mockMayarClient.getInvoice.mockImplementation(async (id: string) => ({
+        id,
+        transactionId: null,
+        amount: 100000n,
+        status: "unpaid",
+        link: "https://mayar.link/inv",
+      }));
+
+      const report = await reconcileOpenOrders({
+        maxBatchSize: 50,
+        dbOrTx: mockDb,
+        client: mockMayarClient,
+        minAgeMinutes: 0,
+        settler: settleSpy,
+      });
+
+      // When minAgeMinutes is 0, recent order is not filtered by age cutoff
+      expect(report.scannedCount).toBe(4);
+    });
+
+    it("does not scan EXPIRED orders avoiding batch starvation", async () => {
+      // Simulate 50 expired orders that should be excluded from candidate query
+      for (let i = 0; i < 50; i++) {
+        mockOrders.unshift({
+          id: `order-already-expired-${i}`,
+          buyerUserId: null,
+          buyerEmail: `exp${i}@example.com`,
+          buyerName: "Expired",
+          buyerMobile: "+628111",
+          status: "EXPIRED",
+          currency: "IDR",
+          subtotal: 100000n,
+          discount: 0n,
+          tax: 0n,
+          payable: 100000n,
+          termsVersion: "2026-10-25",
+          providerEnv: "sandbox",
+          merchantId: "merchant-001",
+          invoiceId: `inv-already-expired-${i}`,
+          transactionId: null,
+          paidAt: null,
+          createdAt: new Date(Date.now() - 60 * 60 * 1000),
+          updatedAt: new Date(Date.now() - 60 * 60 * 1000),
+        });
+      }
+
+      const report = await reconcileOpenOrders({
+        maxBatchSize: 50,
+        dbOrTx: mockDb,
+        client: mockMayarClient,
+        minAgeMinutes: 15,
+      });
+
+      // Only the 3 unfinalized orders older than 15m should be scanned, not the 50 EXPIRED orders
+      expect(report.scannedCount).toBe(3);
     });
 
     it("resiliently records errors and continues reconciling remaining orders when Mayar fails for one", async () => {
@@ -293,7 +391,7 @@ describe("Payment Reconciliation (TDD)", () => {
         maxBatchSize: 50,
         dbOrTx: mockDb,
         client: mockMayarClient,
-        minAgeMinutes: 5,
+        minAgeMinutes: 15,
       });
 
       expect(report.scannedCount).toBe(3);

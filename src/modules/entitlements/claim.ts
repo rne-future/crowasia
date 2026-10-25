@@ -67,49 +67,51 @@ export async function requestPurchaseClaim(
     throw new ClaimForbiddenError("Email does not match order buyer email");
   }
 
-  const now = new Date();
-
-  // Invalidate any existing active unconsumed claims for this order
-  await dbOrTx
-    .update(purchaseClaims)
-    .set({ expiresAt: now })
-    .where(
-      and(
-        eq(purchaseClaims.orderId, order.id),
-        isNull(purchaseClaims.usedAt)
-      )
-    );
-
   const rawToken = randomBytes(32).toString("hex");
   const tokenHash = createHash("sha256").update(rawToken).digest("hex");
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   const claimId = randomUUID();
 
-  await dbOrTx
-    .insert(purchaseClaims)
-    .values({
-      id: claimId,
-      orderId: order.id,
-      tokenHash,
-      expiresAt,
+  return await runWithTransaction(dbOrTx, async (tx) => {
+    const now = new Date();
+
+    // Invalidate any existing active unconsumed claims for this order
+    await tx
+      .update(purchaseClaims)
+      .set({ expiresAt: now })
+      .where(
+        and(
+          eq(purchaseClaims.orderId, order.id),
+          isNull(purchaseClaims.usedAt)
+        )
+      );
+
+    await tx
+      .insert(purchaseClaims)
+      .values({
+        id: claimId,
+        orderId: order.id,
+        tokenHash,
+        expiresAt,
+      });
+
+    await enqueueOutboxJob(tx, {
+      kind: "claim_email",
+      aggregateId: order.id,
+      dedupeKey: `claim-email-${claimId}`,
+      payload: {
+        orderId: order.id,
+        email: normalizedEmail,
+        token: rawToken,
+        expiresAt: expiresAt.toISOString(),
+      },
     });
 
-  await enqueueOutboxJob(dbOrTx, {
-    kind: "claim_email",
-    aggregateId: order.id,
-    dedupeKey: `claim-email-${claimId}`,
-    payload: {
-      orderId: order.id,
-      email: normalizedEmail,
-      token: rawToken,
-      expiresAt: expiresAt.toISOString(),
-    },
+    return {
+      claimId,
+      expiresAt,
+    };
   });
-
-  return {
-    claimId,
-    expiresAt,
-  };
 }
 
 /**
@@ -191,14 +193,37 @@ export async function claimPurchase(
   return await runWithTransaction(dbOrTx, async (tx) => {
     const claimTime = new Date();
 
-    // 1. Mark claim as used
-    await tx
+    // 1. Mark claim as used with single-use CAS guard
+    const updateQuery = tx
       .update(purchaseClaims)
       .set({
         usedAt: claimTime,
         claimedBy: actor.userId,
       })
-      .where(eq(purchaseClaims.id, claim.id));
+      .where(
+        and(
+          eq(purchaseClaims.id, claim.id),
+          isNull(purchaseClaims.usedAt)
+        )
+      );
+
+    const updatedClaims =
+      typeof (updateQuery as unknown as { returning?: (fields: unknown) => Promise<unknown[]> }).returning ===
+      "function"
+        ? await (updateQuery as unknown as { returning: (fields: unknown) => Promise<unknown[]> }).returning({
+            id: purchaseClaims.id,
+          })
+        : await (updateQuery as unknown as Promise<unknown>);
+
+    if (
+      (Array.isArray(updatedClaims) && updatedClaims.length === 0) ||
+      (typeof updatedClaims === "object" &&
+        updatedClaims !== null &&
+        "rowCount" in updatedClaims &&
+        (updatedClaims as { rowCount?: number }).rowCount === 0)
+    ) {
+      throw new ClaimForbiddenError("Claim token has already been used");
+    }
 
     // 2. Bind order to actor
     await tx
