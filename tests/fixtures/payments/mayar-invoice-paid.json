@@ -1,0 +1,24 @@
+{
+  "statusCode": 200,
+  "messages": "Invoice fetched successfully",
+  "data": {
+    "id": "inv_mock_12345",
+    "transactionId": "txn_mock_67890",
+    "amount": 150000,
+    "status": "paid",
+    "link": "https://mayar.link/inv/inv_mock_12345",
+    "paymentUrl": "https://mayar.link/inv/inv_mock_12345",
+    "customer": {
+      "name": "Harry Rosyan",
+      "email": "mharryrosyan@gmail.com",
+      "mobile": "08123456789"
+    },
+    "extraData": {
+      "orderId": "00000000-0000-0000-0000-000000000001"
+    },
+    "userId": "usr_merchant_test_1",
+    "expiredAt": "2026-11-01T00:00:00.000Z",
+    "createdAt": "2026-10-25T12:00:00.000Z",
+    "updatedAt": "2026-10-25T12:05:00.000Z"
+  }
+}

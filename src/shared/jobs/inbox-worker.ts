@@ -10,6 +10,7 @@ import {
 import type { WorkerOptions, JobResult, DbOrTx } from "./types";
 
 export interface InsertInboxEventParams {
+  id?: string;
   providerEnv: string;
   eventKey: string;
   payloadHash: string;
@@ -23,10 +24,12 @@ export interface InsertInboxEventParams {
 export async function insertInboxEvent(
   txOrDb: DbOrTx = defaultDb,
   params: InsertInboxEventParams
-): Promise<void> {
+): Promise<{ id: string }> {
+  const id = params.id ?? crypto.randomUUID();
   await txOrDb
     .insert(webhookInbox)
     .values({
+      id,
       providerEnv: params.providerEnv,
       eventKey: params.eventKey,
       payloadHash: params.payloadHash,
@@ -34,6 +37,7 @@ export async function insertInboxEvent(
       status: "pending",
     })
     .onConflictDoNothing();
+  return { id };
 }
 
 export {

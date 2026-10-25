@@ -17,6 +17,7 @@ out/
 books
 books/
 docs/
+.creds
 .creds/
 
 # Build
