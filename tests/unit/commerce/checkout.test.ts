@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   createCheckoutOrder,
   getOrderStatus,
+  createQuoteToken,
   ConflictError,
   QuoteExpiredError,
   OrderNotFoundError,
   ForbiddenError,
+  ValidationError,
   type CheckoutInput,
   type OfferQuote,
 } from "@/modules/commerce";
@@ -59,7 +61,6 @@ describe("Checkout Engine & Order State Machine (TDD)", () => {
     email: "buyer@example.com",
     name: "John Doe",
     mobile: "+6281234567890",
-    quote: validQuote,
   };
 
   let mockOrders: any[];
@@ -271,15 +272,18 @@ describe("Checkout Engine & Order State Machine (TDD)", () => {
       ).rejects.toThrow(ConflictError);
     });
 
-    it("throws QuoteExpiredError (409) if quote has expired", async () => {
-      const expiredQuote: OfferQuote = {
-        ...validQuote,
-        expiresAt: new Date(Date.now() - 5000), // in the past
-      };
+    it("throws QuoteExpiredError (409) if quote token has expired", async () => {
+      const expiredToken = createQuoteToken({
+        tierId: "tier-1111",
+        tierCode: "bundle-3-books",
+        amountIdr: "299000",
+        expiresAt: new Date(Date.now() - 5000).toISOString(),
+        termsVersion: "2026-10-25",
+      });
 
       const expiredInput: CheckoutInput = {
         ...baseInput,
-        quote: expiredQuote,
+        quoteToken: expiredToken,
       };
 
       await expect(
@@ -295,6 +299,131 @@ describe("Checkout Engine & Order State Machine (TDD)", () => {
 
       // Zero orders created
       expect(mockOrders).toHaveLength(0);
+    });
+
+    it("ignores client-supplied fake quote object and enforces authoritative database tier price", async () => {
+      // Attempt price manipulation by passing a fake quote object with 1 IDR payable
+      const tamperedInput = {
+        ...baseInput,
+        quote: {
+          ...validQuote,
+          subtotal: 1n,
+          payable: 1n,
+        },
+      } as unknown as CheckoutInput;
+
+      const result = await createCheckoutOrder(
+        tamperedInput,
+        "idem-key-tamper",
+        actor,
+        undefined,
+        mockDb,
+        mockMayarClient
+      );
+
+      expect(result.status).toBe("AWAITING_PAYMENT");
+      expect(mockOrders).toHaveLength(1);
+      // Payable MUST come from DB (299000n), NOT the fake client quote (1n)
+      expect(mockOrders[0].payable).toBe(299000n);
+      expect(mockOrders[0].subtotal).toBe(299000n);
+    });
+
+    it("validates quoteToken matches the offerId", async () => {
+      const mismatchedToken = createQuoteToken({
+        tierId: "other-tier-uuid",
+        tierCode: "other-offer",
+        amountIdr: "299000",
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+        termsVersion: "2026-10-25",
+      });
+
+      const inputWithBadToken: CheckoutInput = {
+        ...baseInput,
+        quoteToken: mismatchedToken,
+      };
+
+      await expect(
+        createCheckoutOrder(
+          inputWithBadToken,
+          "idem-key-mismatch-tier",
+          actor,
+          undefined,
+          mockDb,
+          mockMayarClient
+        )
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it("validates quoteToken amount matches current database tier price", async () => {
+      const staleToken = createQuoteToken({
+        tierId: "tier-1111",
+        tierCode: "bundle-3-books",
+        amountIdr: "199000", // DB has 299000n
+        expiresAt: new Date(Date.now() + 60000).toISOString(),
+        termsVersion: "2026-10-25",
+      });
+
+      const inputWithStalePrice: CheckoutInput = {
+        ...baseInput,
+        quoteToken: staleToken,
+      };
+
+      await expect(
+        createCheckoutOrder(
+          inputWithStalePrice,
+          "idem-key-mismatch-amount",
+          actor,
+          undefined,
+          mockDb,
+          mockMayarClient
+        )
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it("throws ValidationError when tier contains no books to grant", async () => {
+      // Mock db returning zero books for tier
+      const dbWithEmptyTier = {
+        ...mockDb,
+        select: vi.fn().mockImplementation(() => ({
+          from: vi.fn().mockImplementation((table: any) => ({
+            innerJoin: vi.fn().mockReturnThis(),
+            where: vi.fn().mockImplementation(() => {
+              if (table === pricingTiers) {
+                return Promise.resolve([
+                  {
+                    id: "tier-empty",
+                    code: "empty-tier",
+                    amountIdr: 299000n,
+                    status: "active",
+                    version: 1,
+                    termsVersion: "2026-10-25",
+                  },
+                ]);
+              }
+              if (table === tierBooks) {
+                return Promise.resolve([]); // 0 books!
+              }
+              return Promise.resolve([]);
+            }),
+          })),
+        })),
+      };
+
+      const emptyTierInput: CheckoutInput = {
+        ...baseInput,
+        offerId: "empty-tier",
+      };
+
+      await expect(
+        createCheckoutOrder(
+          emptyTierInput,
+          "idem-key-empty-tier",
+          actor,
+          undefined,
+          dbWithEmptyTier,
+          mockMayarClient
+        )
+      ).rejects.toThrow(new ValidationError("Tier contains no books to grant"));
     });
 
     it("marks order as CREATE_UNKNOWN when Mayar createInvoice throws a timeout or 5xx", async () => {

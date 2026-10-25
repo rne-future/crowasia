@@ -124,22 +124,27 @@ export async function createCheckoutOrder(
     };
   }
 
-  // 2. Validate quote expiry
+  // 2. Derive & verify quote server-side
   let quote: OfferQuote;
   if (input.quoteToken) {
-    verifyQuoteToken(input.quoteToken);
-    quote = input.quote ?? (await getOfferQuote(input.offerId, dbOrTx));
-  } else if (input.quote) {
-    if (new Date(input.quote.expiresAt).getTime() <= Date.now()) {
-      throw new QuoteExpiredError("Quote has expired");
+    const verified = verifyQuoteToken(input.quoteToken);
+    if (verified.tierId !== input.offerId && verified.tierCode !== input.offerId) {
+      throw new ValidationError("Quote token does not match offerId");
     }
-    quote = input.quote;
+    quote = await getOfferQuote(input.offerId, dbOrTx);
+    if (quote.payable !== BigInt(verified.amountIdr)) {
+      throw new ValidationError("Quote amount mismatch");
+    }
   } else {
     quote = await getOfferQuote(input.offerId, dbOrTx);
   }
 
   if (new Date(quote.expiresAt).getTime() <= Date.now()) {
     throw new QuoteExpiredError("Quote has expired");
+  }
+
+  if (quote.books.length === 0) {
+    throw new ValidationError("Tier contains no books to grant");
   }
 
   const normalizedEmail = input.email.trim().toLowerCase();

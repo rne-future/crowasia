@@ -8,6 +8,7 @@ import {
   InvalidQuoteError,
   type OfferQuote,
 } from "@/modules/commerce";
+import { env } from "@/shared/config/env";
 import { pricingTiers, tierBooks, books } from "@/shared/db/schema/catalog";
 
 describe("Quotes Engine (TDD)", () => {
@@ -184,6 +185,32 @@ describe("Quotes Engine (TDD)", () => {
     });
 
     expect(() => verifyQuoteToken(expiredToken)).toThrow(QuoteExpiredError);
+  });
+
+  it("throws an error in production environment when no quote secret is configured", () => {
+    const originalEnv = env.APP_ENV;
+    const originalCronSecret = env.CRON_SECRET;
+    const originalServiceRole = env.SUPABASE_SERVICE_ROLE_KEY;
+
+    try {
+      (env as unknown as { APP_ENV: string }).APP_ENV = "production";
+      delete env.CRON_SECRET;
+      delete env.SUPABASE_SERVICE_ROLE_KEY;
+
+      expect(() =>
+        createQuoteToken({
+          tierId,
+          tierCode: "bundle-3-books",
+          amountIdr: "299000",
+          expiresAt: new Date(Date.now() + 60000).toISOString(),
+          termsVersion: "2026-10-25",
+        })
+      ).toThrow("Missing quote secret in production environment");
+    } finally {
+      (env as unknown as { APP_ENV: string }).APP_ENV = originalEnv;
+      env.CRON_SECRET = originalCronSecret;
+      env.SUPABASE_SERVICE_ROLE_KEY = originalServiceRole;
+    }
   });
 
   describe("API Route: GET /api/quotes/[offerId]", () => {

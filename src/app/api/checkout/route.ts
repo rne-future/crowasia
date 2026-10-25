@@ -26,9 +26,9 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    let body: any;
+    let body: Record<string, unknown> | null = null;
     try {
-      body = await request.json();
+      body = (await request.json()) as Record<string, unknown>;
     } catch {
       return NextResponse.json(
         { error: "Invalid JSON body", code: "INVALID_JSON" },
@@ -36,7 +36,12 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const { offerId, email, name, mobile, quoteToken, quote } = body || {};
+    const offerId = typeof body?.offerId === "string" ? body.offerId.trim() : "";
+    const email = typeof body?.email === "string" ? body.email.trim() : "";
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    const mobile = typeof body?.mobile === "string" ? body.mobile.trim() : "";
+    const quoteToken = typeof body?.quoteToken === "string" ? body.quoteToken.trim() : undefined;
+
     if (!offerId || !email || !name || !mobile) {
       return NextResponse.json(
         { error: "Missing required checkout fields: offerId, email, name, mobile", code: "MISSING_FIELDS" },
@@ -66,7 +71,6 @@ export async function POST(request: Request): Promise<Response> {
         name,
         mobile,
         quoteToken,
-        quote,
       },
       idempotencyKey.trim(),
       actor,

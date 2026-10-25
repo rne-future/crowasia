@@ -48,7 +48,6 @@ export interface CheckoutInput {
   name: string;
   mobile: string;
   quoteToken?: string;
-  quote?: OfferQuote;
 }
 
 export interface CheckoutResult {

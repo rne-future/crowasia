@@ -14,7 +14,14 @@ import {
 } from "./types";
 
 function getQuoteSecret(): string {
-  return env.CRON_SECRET || env.SUPABASE_SERVICE_ROLE_KEY || "crowasia-quote-secret-salt-2026";
+  const secret = env.CRON_SECRET || env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!secret) {
+    if (env.APP_ENV === "production") {
+      throw new Error("Missing quote secret in production environment");
+    }
+    return "crowasia-quote-secret-salt-2026";
+  }
+  return secret;
 }
 
 export function createQuoteToken(
