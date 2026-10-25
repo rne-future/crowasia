@@ -19,12 +19,29 @@ import {
   type CompileDraftOptions,
 } from "./types";
 
+function isDbOrTx(arg: unknown): arg is DbOrTx {
+  return typeof arg === "object" && arg !== null && ("select" in arg || "insert" in arg);
+}
+
 export async function compileDraft(
   variantId: string,
-  dbOrTx?: DbOrTx,
-  actorOrOptions?: Actor | (CompileDraftOptions & { config?: Partial<CompilerConfig> })
+  arg2?: DbOrTx | Actor | (CompileDraftOptions & { config?: Partial<CompilerConfig> }),
+  arg3?: DbOrTx | Actor | (CompileDraftOptions & { config?: Partial<CompilerConfig> })
 ): Promise<CompileDraftResult> {
-  const client = dbOrTx ?? defaultDb;
+  let client: DbOrTx = defaultDb;
+  let actorOrOptions: Actor | (CompileDraftOptions & { config?: Partial<CompilerConfig> }) | undefined;
+
+  if (isDbOrTx(arg2)) {
+    client = arg2;
+    if (!isDbOrTx(arg3)) {
+      actorOrOptions = arg3;
+    }
+  } else {
+    actorOrOptions = arg2;
+    if (isDbOrTx(arg3)) {
+      client = arg3;
+    }
+  }
 
   let actor: Actor | undefined;
   let customConfig: Partial<CompilerConfig> | undefined;
