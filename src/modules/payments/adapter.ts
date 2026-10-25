@@ -234,6 +234,12 @@ export class MayarClient {
       throw new AmountMismatchError(orderSnapshot.payable, invoice.amount);
     }
 
+    if (invoice.extraData?.orderId && invoice.extraData.orderId !== orderSnapshot.orderId) {
+      throw new PaymentVerificationError(
+        `Invoice orderId mismatch: expected '${orderSnapshot.orderId}', received '${invoice.extraData.orderId}'`
+      );
+    }
+
     if (!invoice.transactionId) {
       throw new PaymentVerificationError(
         "Transaction ID missing from paid invoice"
@@ -252,11 +258,13 @@ export class MayarClient {
       throw new AmountMismatchError(orderSnapshot.payable, transaction.amount);
     }
 
+    const merchantId = invoice.userId ?? "default";
+
     const canonicalEvidence = JSON.stringify({
       adapterContractVersion: "2.0",
       environment: this.environment,
       invoiceId: invoice.id,
-      merchantId: invoice.userId ?? "unknown",
+      merchantId,
       orderId: orderSnapshot.orderId,
       payableIdr: invoice.amount.toString(),
       status: invoice.status,
@@ -270,10 +278,11 @@ export class MayarClient {
     return {
       provider: "mayar",
       environment: this.environment,
-      merchantId: invoice.userId ?? "default",
+      merchantId,
       invoiceId: invoice.id,
       transactionId: transaction.id,
       payableIdr: invoice.amount,
+      amount: invoice.amount,
       currency: "IDR",
       evidenceHash,
       verifiedAt: new Date(),
@@ -282,6 +291,34 @@ export class MayarClient {
   }
 }
 
+let defaultClient: MayarClient | null = null;
+
 export function getMayarClient(config?: MayarClientConfig): MayarClient {
-  return new MayarClient(config);
+  if (config) {
+    return new MayarClient(config);
+  }
+  if (!defaultClient) {
+    defaultClient = new MayarClient();
+  }
+  return defaultClient;
+}
+
+export async function createInvoice(input: CreateInvoiceInput, client = getMayarClient()): Promise<MayarInvoice> {
+  return client.createInvoice(input);
+}
+
+export async function getInvoice(invoiceId: string, client = getMayarClient()): Promise<MayarInvoice> {
+  return client.getInvoice(invoiceId);
+}
+
+export async function getTransaction(transactionId: string, client = getMayarClient()): Promise<MayarTransaction> {
+  return client.getTransaction(transactionId);
+}
+
+export async function verifyPayment(
+  orderSnapshot: OrderSnapshot,
+  invoiceId: string,
+  client = getMayarClient()
+): Promise<VerifiedPaymentData> {
+  return client.verifyPayment(orderSnapshot, invoiceId);
 }

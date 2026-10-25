@@ -52,6 +52,7 @@ export interface VerifiedPaymentData {
   invoiceId: string;
   transactionId: string;
   payableIdr: bigint;
+  amount: bigint;
   currency: "IDR";
   evidenceHash: string;
   verifiedAt: Date;
