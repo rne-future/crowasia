@@ -90,8 +90,15 @@ export async function getChapterForReading(
     return null;
   }
 
-  // 3. Find current chapter
-  const currentChapterIndex = allChapters.findIndex((c) => c.slug === chapterSlug);
+  // 3. Find current chapter (supports both 'ch-0' and 'chapter-0' and exact slug match)
+  const parsedIndexMatch = chapterSlug.match(/^(?:ch|chapter)-(\d+)$/i);
+  const targetIndex = parsedIndexMatch ? parseInt(parsedIndexMatch[1], 10) : undefined;
+
+  const currentChapterIndex = allChapters.findIndex(
+    (c) =>
+      c.slug === chapterSlug ||
+      (targetIndex !== undefined && c.index === targetIndex)
+  );
   if (currentChapterIndex === -1) {
     return null;
   }

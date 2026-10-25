@@ -107,7 +107,7 @@ async function main() {
     if (failureCount > 0) {
       process.exit(1);
     }
-    return;
+    process.exit(0);
   }
 
   const bookId = parsed.bookId || "book-1";
