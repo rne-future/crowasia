@@ -166,6 +166,7 @@ export function evaluateDrizzleCondition(
   if (operator === "is not null") return actualVal !== null && actualVal !== undefined;
   if (operator === "in") return Array.isArray(targetVal) && targetVal.includes(actualVal);
   if (operator === "<=") {
+    if (actualVal == null || targetVal == null) return false;
     if (actualVal instanceof Date && targetVal instanceof Date) {
       return actualVal.getTime() <= targetVal.getTime();
     }
@@ -178,6 +179,7 @@ export function evaluateDrizzleCondition(
     return String(actualVal) <= String(targetVal);
   }
   if (operator === ">") {
+    if (actualVal == null || targetVal == null) return false;
     if (actualVal instanceof Date && targetVal instanceof Date) {
       return actualVal.getTime() > targetVal.getTime();
     }

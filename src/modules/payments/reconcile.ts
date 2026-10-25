@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, lte } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { db as defaultDb } from "@/shared/db/client";
 import { orders } from "@/shared/db/schema/commerce";
 import type { DbOrTx } from "@/shared/jobs/types";
@@ -81,12 +81,16 @@ export async function reconcileOpenOrders(
   const cutoffDate = new Date(now.getTime() - minAgeMinutes * 60 * 1000);
 
   const whereConditions = [
-    isNotNull(orders.invoiceId),
-    inArray(orders.status, [
-      "AWAITING_PAYMENT",
-      "CREATE_UNKNOWN",
-      "pending",
-    ]),
+    or(
+      and(
+        isNotNull(orders.invoiceId),
+        inArray(orders.status, ["AWAITING_PAYMENT", "CREATE_UNKNOWN", "pending"])
+      ),
+      and(
+        isNull(orders.invoiceId),
+        inArray(orders.status, ["CREATE_UNKNOWN", "INVOICE_CREATING"])
+      )
+    ),
   ];
 
   if (minAgeMinutes > 0) {
@@ -124,8 +128,23 @@ export async function reconcileOpenOrders(
   const errors: string[] = [];
 
   for (const order of candidateOrders) {
-    if (!order.invoiceId) continue;
     scannedCount++;
+
+    if (!order.invoiceId) {
+      try {
+        await dbOrTx
+          .update(orders)
+          .set({ status: "EXPIRED", updatedAt: new Date() })
+          .where(eq(orders.id, order.id));
+        expiredCount++;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        errors.push(
+          `Order ${order.id} (null invoice) expiration failed: ${message}`
+        );
+      }
+      continue;
+    }
 
     try {
       const invoice = await client.getInvoice(order.invoiceId);

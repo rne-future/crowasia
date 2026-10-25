@@ -339,6 +339,44 @@ describe("ACC-16: Cron Reconciliation Worker Recovery (Integration)", () => {
     expect(expOrder?.status).toBe("EXPIRED");
   });
 
+  it("transitions CREATE_UNKNOWN orders with null invoiceId older than cutoff to EXPIRED", async () => {
+    const orderIdCuNull = "order-reconcile-cu-null";
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+
+    harness.tables.orders.push({
+      id: orderIdCuNull,
+      buyerUserId: "user-cu-null",
+      buyerEmail: "cu.null@example.com",
+      buyerName: "CU Null Buyer",
+      buyerMobile: "+6281234567890",
+      status: "CREATE_UNKNOWN",
+      currency: "IDR",
+      subtotal: 100000n,
+      discount: 0n,
+      tax: 0n,
+      payable: 100000n,
+      termsVersion: "2026-10-25",
+      providerEnv: "sandbox",
+      merchantId: "merchant-primary",
+      invoiceId: null,
+      transactionId: null,
+      paidAt: null,
+      refundStatus: "none",
+      createdAt: thirtyMinutesAgo,
+      updatedAt: thirtyMinutesAgo,
+    });
+
+    const report = await reconcileOpenOrders({
+      dbOrTx: harness.getDb(),
+      client: mockMayarClientRef.current,
+      minAgeMinutes: 15,
+    });
+
+    const cuNullOrder = harness.tables.orders.find((o) => o.id === orderIdCuNull);
+    expect(cuNullOrder?.status).toBe("EXPIRED");
+    expect(report.expiredCount).toBeGreaterThanOrEqual(2);
+  });
+
   it("verifies idempotency: running reconciliation a second time does not re-settle or duplicate grants", async () => {
     // First run
     await reconcileOpenOrders({

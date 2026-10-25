@@ -31,33 +31,97 @@ const {
   const mGrants: any[] = [];
   const mOutbox: any[] = [];
 
-  function matchesCondition(row: any, condition: any): boolean {
-    if (!condition) return true;
-    let colName: string | undefined;
-    let targetVal: any;
+  function matchesCondition(row: any, cond: any): boolean {
+    if (!cond || typeof cond !== "object") return true;
+    const chunks = cond.queryChunks;
+    if (!Array.isArray(chunks)) return true;
 
-    if (Array.isArray(condition?.queryChunks)) {
-      for (const chunk of condition.queryChunks) {
-        if (chunk && typeof chunk === "object") {
-          if ("name" in chunk && typeof chunk.name === "string") {
-            colName = chunk.name;
-          }
-          if ("encoder" in chunk && "value" in chunk) {
-            targetVal = chunk.value;
-          }
-        }
+    if (
+      chunks.length === 3 &&
+      typeof chunks[1] === "object" &&
+      chunks[1] !== null &&
+      "queryChunks" in chunks[1]
+    ) {
+      return matchesCondition(row, chunks[1]);
+    }
+
+    let hasAnd = false;
+    let hasOr = false;
+    for (const c of chunks) {
+      if (c && typeof c === "object" && "value" in c && Array.isArray(c.value)) {
+        const str = (c.value[0] || "").trim().toLowerCase();
+        if (str === "and") hasAnd = true;
+        if (str === "or") hasOr = true;
       }
     }
 
-    if (colName && targetVal !== undefined) {
-      const camelCol = colName.replace(/_([a-z])/g, (_, g) => g.toUpperCase());
-      return row[camelCol] === targetVal || row[colName] === targetVal;
+    if (hasAnd) {
+      for (const c of chunks) {
+        if (c && typeof c === "object" && "queryChunks" in c) {
+          if (!matchesCondition(row, c)) return false;
+        }
+      }
+      return true;
     }
 
-    if (targetVal !== undefined) {
-      return Object.values(row).some((v) => v === targetVal);
+    if (hasOr) {
+      for (const c of chunks) {
+        if (c && typeof c === "object" && "queryChunks" in c) {
+          if (matchesCondition(row, c)) return true;
+        }
+      }
+      return false;
     }
-    return true;
+
+    let colName: string | undefined;
+    let operator = "=";
+    let targetVal: any;
+
+    for (const c of chunks) {
+      if (!c || typeof c !== "object") continue;
+      if ("name" in c && typeof c.name === "string") {
+        colName = c.name;
+      } else if ("value" in c) {
+        const v = c.value;
+        if (Array.isArray(v) && typeof v[0] === "string") {
+          const opStr = v[0].trim().toLowerCase();
+          if (["=", "is null", "is not null", "<=", ">", "in"].includes(opStr)) {
+            operator = opStr;
+          }
+        } else {
+          targetVal = v;
+        }
+      } else if (Array.isArray(c)) {
+        operator = "in";
+        targetVal = c.map((item: any) =>
+          item && typeof item === "object" && "value" in item ? item.value : item
+        );
+      }
+    }
+
+    if (!colName) return true;
+    const camelCol = colName.replace(/_([a-z])/g, (_, l) => l.toUpperCase());
+    const actualVal = row[camelCol] !== undefined ? row[camelCol] : row[colName];
+
+    if (operator === "is null") return actualVal === null || actualVal === undefined;
+    if (operator === "is not null") return actualVal !== null && actualVal !== undefined;
+    if (operator === "in") return Array.isArray(targetVal) && targetVal.includes(actualVal);
+    if (operator === ">") {
+      if (actualVal == null || targetVal == null) return false;
+      if (actualVal instanceof Date && targetVal instanceof Date) {
+        return actualVal.getTime() > targetVal.getTime();
+      }
+      return actualVal > targetVal;
+    }
+    if (operator === "<=") {
+      if (actualVal == null || targetVal == null) return false;
+      if (actualVal instanceof Date && targetVal instanceof Date) {
+        return actualVal.getTime() <= targetVal.getTime();
+      }
+      return actualVal <= targetVal;
+    }
+
+    return actualVal === targetVal;
   }
 
   const db: any = {
@@ -101,7 +165,11 @@ const {
             return Promise.resolve();
           }),
           returning: vi.fn().mockImplementation(() => {
-            const row = { id: vals.id ?? `inserted-${Date.now()}`, ...vals };
+            const row = {
+              id: vals.id ?? `inserted-${Date.now()}`,
+              createdAt: vals.createdAt ?? new Date(),
+              ...vals,
+            };
             if (table === purchaseClaims) {
               mClaims.push(row);
             }
@@ -109,7 +177,11 @@ const {
           }),
         };
         insertObj.then = (resolve: any) => {
-          const row = { id: vals.id ?? `inserted-${Date.now()}`, ...vals };
+          const row = {
+            id: vals.id ?? `inserted-${Date.now()}`,
+            createdAt: vals.createdAt ?? new Date(),
+            ...vals,
+          };
           if (table === purchaseClaims) {
             mClaims.push(row);
           } else if (table === outboxJobs) {
@@ -304,6 +376,7 @@ describe("Guest Purchase Claims Engine (TDD)", () => {
         tokenHash: "oldhash123",
         expiresAt: new Date(Date.now() + 100000),
         usedAt: null,
+        createdAt: new Date(Date.now() - 5 * 60 * 1000), // 5m old (outside 60s cooldown)
       };
       mockPurchaseClaims.push(activeOldClaim);
 
@@ -312,6 +385,25 @@ describe("Guest Purchase Claims Engine (TDD)", () => {
       expect(mockDb.update).toHaveBeenCalledWith(purchaseClaims);
       // Older claim should have expiresAt updated to now or past
       expect(activeOldClaim.expiresAt.getTime()).toBeLessThanOrEqual(Date.now() + 500);
+    });
+
+    it("returns existing claim during 60-second cooldown without re-generating token or enqueuing outbox email", async () => {
+      const recentClaim = {
+        id: "claim-recent-1",
+        orderId,
+        tokenHash: "recenthash123",
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        usedAt: null,
+        createdAt: new Date(Date.now() - 20_000), // 20 seconds ago
+      };
+      mockPurchaseClaims.push(recentClaim);
+
+      const result = await requestPurchaseClaim(orderId, buyerEmail, mockDb);
+
+      expect(result.claimId).toBe("claim-recent-1");
+      expect(result.expiresAt).toEqual(recentClaim.expiresAt);
+      expect(mockOutboxJobs).toHaveLength(0);
+      expect(mockDb.insert).not.toHaveBeenCalled();
     });
 
     it("throws OrderNotFoundError if order does not exist", async () => {

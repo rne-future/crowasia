@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import { db as defaultDb } from "@/shared/db/client";
 import {
   orders,
@@ -65,6 +65,27 @@ export async function requestPurchaseClaim(
 
   if (order.buyerEmail.trim().toLowerCase() !== normalizedEmail) {
     throw new ClaimForbiddenError("Email does not match order buyer email");
+  }
+
+  const sixtySecondsAgo = new Date(Date.now() - 60_000);
+  const recentClaims = await dbOrTx
+    .select()
+    .from(purchaseClaims)
+    .where(
+      and(
+        eq(purchaseClaims.orderId, order.id),
+        gt(purchaseClaims.createdAt, sixtySecondsAgo),
+        isNull(purchaseClaims.usedAt)
+      )
+    )
+    .limit(1);
+
+  if (recentClaims && recentClaims.length > 0) {
+    const recentClaim = recentClaims[0];
+    return {
+      claimId: recentClaim.id,
+      expiresAt: recentClaim.expiresAt,
+    };
   }
 
   const rawToken = randomBytes(32).toString("hex");

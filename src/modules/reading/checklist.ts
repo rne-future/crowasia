@@ -203,13 +203,14 @@ export async function updateChecklistProgress(
         version: 1,
         updatedAt: now,
       };
-    } catch (insertError: any) {
+    } catch (insertError: unknown) {
       // Handle concurrent initial insert race condition (duplicate key)
+      const err = insertError as { code?: string; message?: string; cause?: { code?: string } } | undefined;
       const isUniqueViolation =
-        insertError?.code === "23505" ||
-        String(insertError?.message || "").includes("duplicate key") ||
-        String(insertError?.message || "").includes("unique") ||
-        String(insertError?.cause?.code || "") === "23505";
+        err?.code === "23505" ||
+        String(err?.message || "").includes("duplicate key") ||
+        String(err?.message || "").includes("unique") ||
+        err?.cause?.code === "23505";
 
       if (isUniqueViolation) {
         const latest = await getLatestProgressRow(userId, itemId, dbOrTx);
