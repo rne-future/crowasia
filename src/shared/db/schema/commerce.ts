@@ -2,7 +2,20 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, timestamp, uuid, varchar, boolean, bigint, pgEnum, primaryKey, uniqueIndex, index, check } from "drizzle-orm/pg-core";
 import { books } from "./catalog";
 
-export const orderStatusEnum = pgEnum("order_status", ["pending", "paid", "expired", "failed", "cancelled"]);
+export const orderStatusEnum = pgEnum("order_status", [
+  "INVOICE_CREATING",
+  "AWAITING_PAYMENT",
+  "CREATE_UNKNOWN",
+  "PAID",
+  "EXPIRED",
+  "FAILED",
+  "CANCELLED",
+  "pending",
+  "paid",
+  "expired",
+  "failed",
+  "cancelled",
+]);
 export const refundStatusEnum = pgEnum("refund_status", ["none", "partial", "full", "review"]);
 export const refundRecordStatusEnum = pgEnum("refund_record_status", ["pending", "confirmed", "failed"]);
 
