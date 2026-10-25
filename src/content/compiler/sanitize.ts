@@ -68,6 +68,7 @@ export const HTML_SANITIZE_SCHEMA: SanitizeSchema = {
   ],
   attributes: {
     "*": ["id"],
+    p: [["className", ...ALLOWED_CLASS_PATTERNS]],
     a: [
       "href",
       ["className", ...ALLOWED_CLASS_PATTERNS],
@@ -77,7 +78,12 @@ export const HTML_SANITIZE_SCHEMA: SanitizeSchema = {
       "ariaLabel",
     ],
     abbr: ["title"],
-    aside: [["className", ...ALLOWED_CLASS_PATTERNS]],
+    aside: [
+      ["className", ...ALLOWED_CLASS_PATTERNS],
+      "role",
+      "ariaLabel",
+      "aria-label",
+    ],
     div: [["className", ...ALLOWED_CLASS_PATTERNS], "dataScriptId"],
     ul: [["className", ...ALLOWED_CLASS_PATTERNS]],
     ol: [["className", ...ALLOWED_CLASS_PATTERNS], "start"],

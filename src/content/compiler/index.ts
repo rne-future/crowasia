@@ -44,7 +44,7 @@ export function compileChapter(
   const html = String(vfile);
 
   // 4. Extract chapter title from h1 if present
-  const titleMatch = html.match(/<h1[^>]*>(.*?)<\/h1>/i);
+  const titleMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   const title = titleMatch
     ? titleMatch[1].replace(/<[^>]+>/g, "").trim()
     : undefined;

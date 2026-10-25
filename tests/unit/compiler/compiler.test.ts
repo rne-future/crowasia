@@ -7,7 +7,8 @@ describe("compileChapter", () => {
   it("transforms NOTE alert to aside with correct class", () => {
     const src = "> [!NOTE] Title\n> Body text";
     const result = compileChapter(src, defaultConfig);
-    expect(result.html).toContain('<aside class="alert-note');
+    expect(result.html).toContain('<aside class="alert-note alert" role="region" aria-label="Title"');
+    expect(result.html).toContain('<p class="alert-title"><strong>Title</strong></p>');
     expect(result.html).toContain("Body text");
   });
 
@@ -101,6 +102,7 @@ describe("compileChapter", () => {
     expect(result.html).toContain('data-ordinal="1"');
     expect(result.html).toContain('data-ordinal="2"');
     expect(result.html).toContain('data-ordinal="3"');
+    expect(result.html).not.toContain("<input");
     expect(result.metadata.tasksCount).toBe(3);
   });
 
@@ -110,6 +112,26 @@ describe("compileChapter", () => {
     expect(result.html).toContain('class="mermaid-fallback"');
     expect(result.html).toContain("graph TD;");
     expect(result.metadata.diagramsCount).toBe(1);
+  });
+
+  it("renders server-side sanitized SVG when mermaidRenderer is provided", () => {
+    const src = "```mermaid\ngraph TD;\n  A-->B;\n```";
+    const result = compileChapter(src, {
+      ...defaultConfig,
+      mermaidRenderer: () =>
+        '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>',
+    });
+    expect(result.html).toContain("<svg");
+    expect(result.html).toContain('viewBox="0 0 100 100"');
+    expect(result.html).toContain('<circle cx="50" cy="50" r="40"');
+    expect(result.html).not.toContain("mermaid-fallback");
+    expect(result.metadata.diagramsCount).toBe(1);
+  });
+
+  it("extracts chapter title from multi-line h1", () => {
+    const src = "<h1>Line One\nLine Two</h1>\n\nContent";
+    const result = compileChapter(src, defaultConfig);
+    expect(result.metadata.title).toBe("Line One\nLine Two");
   });
 
   it("preserves placeholders like [Nama] safely", () => {

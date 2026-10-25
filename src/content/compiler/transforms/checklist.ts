@@ -26,6 +26,9 @@ export function remarkChecklist(context?: ChecklistTransformContext) {
             },
           };
 
+          // Remove item.checked so mdast-util-to-hast doesn't insert disabled <input>
+          delete (item as { checked?: boolean | null }).checked;
+
           // Clean up leading whitespace if remark-gfm left one
           if (item.children && item.children.length > 0) {
             const firstChild = item.children[0];

@@ -1,5 +1,7 @@
 import { visit } from "unist-util-visit";
 import type { Root, Element } from "hast";
+import { unified } from "unified";
+import rehypeParse from "rehype-parse";
 import { sanitizeSvg } from "../sanitize";
 
 export interface MermaidTransformContext {
@@ -39,11 +41,18 @@ export function rehypeMermaid(context?: MermaidTransformContext) {
                 const rendered = context.mermaidRenderer(codeContent);
                 if (typeof rendered === "string" && rendered.includes("<svg")) {
                   const sanitized = sanitizeSvg(rendered);
-                  parent.children[index] = {
-                    type: "raw",
-                    value: sanitized,
-                  } as unknown as Element;
-                  return;
+                  const parsed = unified()
+                    .use(rehypeParse, { fragment: true, space: "svg" })
+                    .parse(sanitized);
+
+                  if (parsed.children && parsed.children.length > 0) {
+                    parent.children.splice(
+                      index,
+                      1,
+                      ...(parsed.children as unknown as Element[])
+                    );
+                    return;
+                  }
                 }
               } catch {
                 // Fall back to pre.mermaid-fallback
