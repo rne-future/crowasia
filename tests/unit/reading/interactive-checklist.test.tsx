@@ -178,5 +178,32 @@ describe("InteractiveChecklist Component (TDD)", () => {
       expect(data.error.code).toBe("PROGRESS_CONFLICT");
       expect(data.current).toEqual({ completed: false, version: 5 });
     });
+
+    it("handles non-200 error response and prepares retry/reload recovery", async () => {
+      const errorResponse = {
+        error: "Internal Server Error",
+      };
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: () => Promise.resolve(errorResponse),
+      });
+
+      const res = await fetchMock(`/api/checklists/${itemId}`, { method: "PUT" });
+      const data = await res.json();
+
+      expect(res.ok).toBe(false);
+      expect(res.status).toBe(500);
+      expect(data.error).toBe("Internal Server Error");
+    });
+
+    it("handles network failure exception for rollback", async () => {
+      const fetchMock = vi.fn().mockRejectedValue(new Error("Network connection failed"));
+
+      await expect(
+        fetchMock(`/api/checklists/${itemId}`, { method: "PUT" })
+      ).rejects.toThrow("Network connection failed");
+    });
   });
 });

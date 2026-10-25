@@ -59,6 +59,7 @@ export function InteractiveChecklist({
 
   // Handle toggle action
   const handleToggle = useCallback(async () => {
+    const previousCompleted = completed;
     const nextCompleted = !completed;
     const currentVersion = version;
 
@@ -78,7 +79,11 @@ export function InteractiveChecklist({
             })
           );
         } catch {
-          // Ignore localStorage errors
+          // Rollback on localStorage errors
+          setCompleted(previousCompleted);
+          setStatus("error");
+          setErrorMessage("Gagal menyimpan ke penyimpanan lokal");
+          return;
         }
       }
       setStatus("saved");
@@ -111,6 +116,8 @@ export function InteractiveChecklist({
         setTimeout(() => setStatus("idle"), 1500);
       } else if (response.status === 409) {
         const data = await response.json();
+        // Rollback optimistic update on conflict
+        setCompleted(previousCompleted);
         setStatus("conflict");
         setErrorMessage(
           data.error?.message || "Progres berubah di perangkat lain"
@@ -120,14 +127,20 @@ export function InteractiveChecklist({
         }
       } else if (response.status === 410) {
         const data = await response.json();
+        // Rollback optimistic update on retired item
+        setCompleted(previousCompleted);
         setStatus("error");
         setErrorMessage(data.error?.message || "Item ini sudah tidak berlaku");
       } else {
         const data = await response.json().catch(() => ({}));
+        // Rollback optimistic update on error response
+        setCompleted(previousCompleted);
         setStatus("error");
-        setErrorMessage(data.error || "Gagal menyimpan progres");
+        setErrorMessage(data.error?.message || data.error || "Gagal menyimpan progres");
       }
     } catch {
+      // Rollback optimistic update on network exception
+      setCompleted(previousCompleted);
       setStatus("error");
       setErrorMessage("Koneksi gagal, silakan coba lagi");
     }
@@ -206,8 +219,26 @@ export function InteractiveChecklist({
           )}
 
           {status === "error" && (
-            <div className="mt-1 text-xs text-rose-700 flex items-center gap-1.5">
+            <div className="mt-1.5 text-xs text-rose-700 flex flex-wrap items-center gap-2">
               <span>⚠️ {errorMessage || "Terjadi kesalahan"}</span>
+              <button
+                type="button"
+                onClick={handleToggle}
+                className="px-2 py-0.5 text-xs font-semibold rounded bg-rose-100 hover:bg-rose-200 text-rose-900 border border-rose-300 transition-colors cursor-pointer"
+              >
+                Coba Lagi
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.location.reload();
+                  }
+                }}
+                className="px-2 py-0.5 text-xs font-semibold rounded bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-300 transition-colors cursor-pointer"
+              >
+                Muat Ulang
+              </button>
             </div>
           )}
         </div>

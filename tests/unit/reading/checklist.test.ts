@@ -12,13 +12,15 @@ import {
 import { PUT as putChecklistRoute } from "@/app/api/checklists/[itemId]/route";
 import * as identityModule from "@/modules/identity/get-actor";
 import type { Actor } from "@/modules/identity/types";
+import { chapterVariants } from "@/shared/db/schema/catalog";
 import { checklistItems, checklistProgress } from "@/shared/db/schema/reading";
 
 describe("Checklist Progress Service & Route (TDD)", () => {
-  const userId = "user-1111-1111-1111-111111111111";
-  const itemId = "item-2222-2222-2222-222222222222";
-  const retiredItemId = "item-3333-3333-3333-333333333333";
-  const nonExistentItemId = "item-4444-4444-4444-444444444444";
+  const userId = "11111111-1111-1111-1111-111111111111";
+  const itemId = "22222222-2222-2222-2222-222222222222";
+  const retiredItemId = "33333333-3333-3333-3333-333333333333";
+  const unpublishedItemId = "55555555-5555-5555-5555-555555555555";
+  const nonExistentItemId = "44444444-4444-4444-4444-444444444444";
 
   const mockActor: Actor = {
     userId,
@@ -32,6 +34,12 @@ describe("Checklist Progress Service & Route (TDD)", () => {
     chapterId: string;
     retiredAt: Date | null;
     createdAt: Date;
+  }>;
+
+  let mockChapterVariants: Array<{
+    id: string;
+    chapterId: string;
+    publishedRevisionId: string | null;
   }>;
 
   let mockProgressState: Array<{
@@ -60,6 +68,25 @@ describe("Checklist Progress Service & Route (TDD)", () => {
         retiredAt: new Date("2026-10-15"),
         createdAt: new Date("2026-10-01"),
       },
+      {
+        id: unpublishedItemId,
+        chapterId: "chapter-unpublished",
+        retiredAt: null,
+        createdAt: new Date("2026-10-01"),
+      },
+    ];
+
+    mockChapterVariants = [
+      {
+        id: "variant-1",
+        chapterId: "chapter-1",
+        publishedRevisionId: "rev-1111-1111-1111-111111111111",
+      },
+      {
+        id: "variant-unpublished",
+        chapterId: "chapter-unpublished",
+        publishedRevisionId: null,
+      },
     ];
 
     mockProgressState = [];
@@ -87,12 +114,18 @@ describe("Checklist Progress Service & Route (TDD)", () => {
               const vals = extractValues(whereCondition);
               return mockChecklistItems.filter((i) => vals.includes(i.id));
             }
+            if (fromTable === chapterVariants) {
+              const vals = extractValues(whereCondition);
+              return mockChapterVariants.filter(
+                (v) => vals.includes(v.chapterId) && v.publishedRevisionId !== null
+              );
+            }
             if (fromTable === checklistProgress) {
               const vals = extractValues(whereCondition);
               return mockProgressState.filter((p) => {
                 if (vals.includes(userId) && p.userId !== userId) return false;
                 const hasItemId = vals.some((v) =>
-                  [itemId, retiredItemId, nonExistentItemId].includes(v)
+                  [itemId, retiredItemId, unpublishedItemId, nonExistentItemId].includes(v)
                 );
                 if (hasItemId && !vals.includes(p.itemId)) return false;
                 return true;
@@ -151,7 +184,7 @@ describe("Checklist Progress Service & Route (TDD)", () => {
             if (table === checklistProgress) {
               const vals = extractValues(whereCondition);
               const targetItemId = vals.find((v) =>
-                [itemId, retiredItemId, nonExistentItemId].includes(v)
+                [itemId, retiredItemId, unpublishedItemId, nonExistentItemId].includes(v)
               );
               const targetUserId = vals.includes(userId) ? userId : undefined;
               const expectedVer = vals.find((v) => typeof v === "number");
@@ -237,6 +270,12 @@ describe("Checklist Progress Service & Route (TDD)", () => {
       ).rejects.toThrow(NotFoundError);
     });
 
+    it("throws NotFoundError (404) when item belongs to an unpublished chapter", async () => {
+      await expect(
+        updateChecklistProgress(userId, unpublishedItemId, true, 0, mockDb)
+      ).rejects.toThrow("Item belongs to an unpublished chapter");
+    });
+
     it("throws GoneError (410) when item is retired (retiredAt IS NOT NULL)", async () => {
       await expect(
         updateChecklistProgress(userId, retiredItemId, true, 0, mockDb)
@@ -312,9 +351,97 @@ describe("Checklist Progress Service & Route (TDD)", () => {
         expect(err.current).toEqual({ completed: true, version: 5 });
       }
     });
+
+    it("handles initial insert race condition (23505 duplicate key) by re-fetching latest and throwing ProgressConflictError", async () => {
+      // Simulate race: select initially found no row, but concurrent request inserted one
+      mockDb.insert = vi.fn().mockImplementation(() => {
+        const error: any = new Error("duplicate key value violates unique constraint");
+        error.code = "23505";
+        return {
+          values: () => ({
+            returning: () => {
+              mockProgressState.push({
+                userId,
+                itemId,
+                completed: true,
+                version: 1,
+                updatedAt: new Date("2026-10-25T10:00:00Z"),
+              });
+              return Promise.reject(error);
+            },
+          }),
+        };
+      });
+
+      try {
+        await updateChecklistProgress(userId, itemId, true, 0, mockDb);
+        expect.unreachable("Should have thrown ProgressConflictError");
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(ProgressConflictError);
+        expect(err.status).toBe(409);
+        expect(err.code).toBe("PROGRESS_CONFLICT");
+        expect(err.current).toEqual({ completed: true, version: 1 });
+      }
+    });
+
+    it("re-fetches latest row when updatedRows.length === 0 to return accurate non-stale conflict state", async () => {
+      mockProgressState.push({
+        userId,
+        itemId,
+        completed: false,
+        version: 1,
+        updatedAt: new Date("2026-10-25T10:00:00Z"),
+      });
+
+      mockDb.update = vi.fn().mockImplementation(() => {
+        return {
+          set: () => ({
+            where: () => ({
+              returning: () => {
+                // Concurrent transaction updated the row in the meantime
+                mockProgressState[0].version = 2;
+                mockProgressState[0].completed = true;
+                return Promise.resolve([]);
+              },
+            }),
+          }),
+        };
+      });
+
+      try {
+        await updateChecklistProgress(userId, itemId, true, 1, mockDb);
+        expect.unreachable("Should have thrown ProgressConflictError");
+      } catch (err: any) {
+        expect(err).toBeInstanceOf(ProgressConflictError);
+        expect(err.status).toBe(409);
+        expect(err.code).toBe("PROGRESS_CONFLICT");
+        expect(err.current).toEqual({ completed: true, version: 2 });
+      }
+    });
   });
 
   describe("PUT /api/checklists/[itemId] Route", () => {
+    it("returns 400 with INVALID_ITEM_ID when itemId is not a valid UUID", async () => {
+      vi.spyOn(identityModule, "requireActor").mockResolvedValue(mockActor);
+
+      const req = new Request("http://localhost/api/checklists/not-a-valid-uuid", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: true, expectedVersion: 0 }),
+      });
+
+      const res = await putChecklistRoute(req, {
+        params: Promise.resolve({ itemId: "not-a-valid-uuid" }),
+      });
+
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toEqual({
+        code: "INVALID_ITEM_ID",
+        message: "Item ID must be a valid UUID",
+      });
+    });
+
     it("returns 401 when actor is not authenticated", async () => {
       vi.spyOn(identityModule, "requireActor").mockRejectedValue(
         new Error("Unauthorized: actor authentication required")

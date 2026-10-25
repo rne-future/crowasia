@@ -112,8 +112,8 @@ export async function PUT(
       actor.userId,
       book,
       chapterId,
-      revisionId,
-      anchorId
+      anchorId,
+      revisionId
     );
 
     return NextResponse.json(

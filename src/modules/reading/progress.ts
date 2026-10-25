@@ -74,37 +74,58 @@ export async function getReadingProgress(
   };
 }
 
+export type UpdateReadingProgressOptions = {
+  anchorId?: string;
+  revisionId?: string;
+};
+
 /**
  * Upserts a user's reading progress for a book.
  * Updates chapter_id, revision_id, anchor_id, and last_seen_at.
+ * Supports positional (anchorId, revisionId) or options object { anchorId, revisionId }.
  */
 export async function updateReadingProgress(
   userId: string,
   bookId: string,
   chapterId: string,
+  anchorId?: string | UpdateReadingProgressOptions,
   revisionId?: string,
-  anchorId?: string,
   dbOrTx: DbOrTx = defaultDb
 ): Promise<void> {
-  const resolvedBookId = await resolveBookId(bookId, dbOrTx);
+  let resolvedAnchorId: string | undefined;
+  let resolvedRevisionId: string | undefined;
+  let resolvedDbOrTx: DbOrTx = dbOrTx;
+
+  if (typeof anchorId === "object" && anchorId !== null) {
+    resolvedAnchorId = anchorId.anchorId;
+    resolvedRevisionId = anchorId.revisionId;
+    if (revisionId && typeof revisionId !== "string") {
+      resolvedDbOrTx = revisionId as unknown as DbOrTx;
+    }
+  } else {
+    resolvedAnchorId = anchorId;
+    resolvedRevisionId = revisionId;
+  }
+
+  const resolvedBookId = await resolveBookId(bookId, resolvedDbOrTx);
   const now = new Date();
 
-  await dbOrTx
+  await resolvedDbOrTx
     .insert(readingProgress)
     .values({
       userId,
       bookId: resolvedBookId,
       chapterId,
-      revisionId: revisionId ?? null,
-      anchorId: anchorId ?? null,
+      revisionId: resolvedRevisionId ?? null,
+      anchorId: resolvedAnchorId ?? null,
       lastSeenAt: now,
     })
     .onConflictDoUpdate({
       target: [readingProgress.userId, readingProgress.bookId],
       set: {
         chapterId,
-        revisionId: revisionId ?? null,
-        anchorId: anchorId ?? null,
+        revisionId: resolvedRevisionId ?? null,
+        anchorId: resolvedAnchorId ?? null,
         lastSeenAt: now,
       },
     });

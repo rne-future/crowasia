@@ -184,8 +184,8 @@ describe("Reading Progress Service & Route (TDD)", () => {
   });
 
   describe("updateReadingProgress", () => {
-    it("inserts reading progress on initial write", async () => {
-      await updateReadingProgress(userId, bookId, chapterId, revisionId, anchorId, mockDb);
+    it("inserts reading progress on initial write with (userId, bookId, chapterId, anchorId, revisionId)", async () => {
+      await updateReadingProgress(userId, bookId, chapterId, anchorId, revisionId, mockDb);
 
       expect(mockProgressState).toHaveLength(1);
       expect(mockProgressState[0]).toMatchObject({
@@ -208,11 +208,31 @@ describe("Reading Progress Service & Route (TDD)", () => {
         lastSeenAt: new Date("2026-10-01"),
       });
 
-      await updateReadingProgress(userId, bookId, chapterId, revisionId, anchorId, mockDb);
+      await updateReadingProgress(userId, bookId, chapterId, anchorId, revisionId, mockDb);
 
       expect(mockProgressState).toHaveLength(1);
       expect(mockProgressState[0].chapterId).toBe(chapterId);
       expect(mockProgressState[0].anchorId).toBe(anchorId);
+    });
+
+    it("supports options object as 4th parameter", async () => {
+      await updateReadingProgress(
+        userId,
+        bookId,
+        chapterId,
+        { anchorId, revisionId },
+        undefined,
+        mockDb
+      );
+
+      expect(mockProgressState).toHaveLength(1);
+      expect(mockProgressState[0]).toMatchObject({
+        userId,
+        bookId,
+        chapterId,
+        revisionId,
+        anchorId,
+      });
     });
   });
 
@@ -288,8 +308,8 @@ describe("Reading Progress Service & Route (TDD)", () => {
         userId,
         bookId,
         chapterId,
-        undefined,
-        anchorId
+        anchorId,
+        undefined
       );
     });
 

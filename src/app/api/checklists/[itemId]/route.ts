@@ -8,6 +8,9 @@ import {
   NotFoundError,
 } from "@/modules/reading";
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ itemId: string }> | { itemId: string } }
@@ -30,6 +33,18 @@ export async function PUT(
 
   const resolvedParams = await Promise.resolve(params);
   const itemId = resolvedParams.itemId;
+
+  if (!itemId || !UUID_REGEX.test(itemId)) {
+    return NextResponse.json(
+      {
+        error: {
+          code: "INVALID_ITEM_ID",
+          message: "Item ID must be a valid UUID",
+        },
+      },
+      { status: 400, headers: { "Cache-Control": "private, no-cache, no-store" } }
+    );
+  }
 
   let body: unknown;
   try {
