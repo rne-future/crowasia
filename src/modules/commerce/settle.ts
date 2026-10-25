@@ -32,12 +32,7 @@ export async function settleVerifiedPayment(
   const runInTransaction = async (tx: DbOrTx): Promise<SettlementResult> => {
     // 1. Lock order row FOR UPDATE
     let orderWhereCondition;
-    if (verifiedPayment.orderId && verifiedPayment.invoiceId) {
-      orderWhereCondition = or(
-        eq(orders.id, verifiedPayment.orderId),
-        eq(orders.invoiceId, verifiedPayment.invoiceId)
-      );
-    } else if (verifiedPayment.orderId) {
+    if (verifiedPayment.orderId) {
       orderWhereCondition = eq(orders.id, verifiedPayment.orderId);
     } else {
       orderWhereCondition = eq(orders.invoiceId, verifiedPayment.invoiceId);
@@ -56,6 +51,16 @@ export async function settleVerifiedPayment(
     }
 
     const order = orderRows[0];
+
+    // If both IDs are present, verify consistency
+    if (
+      verifiedPayment.orderId &&
+      verifiedPayment.invoiceId &&
+      order.invoiceId &&
+      order.invoiceId !== verifiedPayment.invoiceId
+    ) {
+      throw new PaymentVerificationError("Mismatched order and invoice identifiers during settlement");
+    }
 
     // 2. Check if already paid
     const isPaid = order.status === "PAID" || order.status === "paid";
@@ -163,6 +168,9 @@ export async function settleVerifiedPayment(
       .where(eq(orderItems.orderId, order.id));
 
     const items = await itemQuery;
+    if (!items || items.length === 0) {
+      throw new PaymentVerificationError(`Cannot settle order ${order.id}: no order items found to grant`);
+    }
 
     // 8. Insert purchase_grants for each item
     const grantedAt = new Date();

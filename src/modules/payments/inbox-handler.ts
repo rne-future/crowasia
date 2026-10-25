@@ -66,9 +66,7 @@ export async function processMayarWebhookEvent(
 
   // Look up order in database
   let orderWhere;
-  if (orderId && invoiceId) {
-    orderWhere = or(eq(orders.id, orderId), eq(orders.invoiceId, invoiceId));
-  } else if (orderId) {
+  if (orderId) {
     orderWhere = eq(orders.id, orderId);
   } else {
     orderWhere = eq(orders.invoiceId, invoiceId!);
@@ -88,7 +86,11 @@ export async function processMayarWebhookEvent(
 
   const order = orderRows[0];
 
-  const targetInvoiceId = invoiceId ?? order.invoiceId;
+  if (order.invoiceId && invoiceId && order.invoiceId !== invoiceId) {
+    throw new PaymentVerificationError("Webhook invoiceId does not match order invoiceId");
+  }
+
+  const targetInvoiceId = order.invoiceId ?? invoiceId;
   if (!targetInvoiceId) {
     throw new PaymentVerificationError(
       "No invoice ID found to verify payment with Mayar"
