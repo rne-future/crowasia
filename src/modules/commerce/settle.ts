@@ -62,6 +62,26 @@ export async function settleVerifiedPayment(
       throw new PaymentVerificationError("Mismatched order and invoice identifiers during settlement");
     }
 
+    // Verify merchant ID consistency
+    if (
+      order.merchantId &&
+      order.merchantId !== "default" &&
+      verifiedPayment.merchantId &&
+      verifiedPayment.merchantId !== "default" &&
+      order.merchantId !== verifiedPayment.merchantId
+    ) {
+      throw new PaymentVerificationError("Mismatched merchant ID during settlement");
+    }
+
+    // Verify environment consistency
+    if (
+      order.providerEnv &&
+      verifiedPayment.environment &&
+      order.providerEnv !== verifiedPayment.environment
+    ) {
+      throw new PaymentVerificationError("Mismatched environment during settlement");
+    }
+
     // 2. Check if already paid
     const isPaid = order.status === "PAID" || order.status === "paid";
     if (isPaid) {
