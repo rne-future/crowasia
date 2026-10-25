@@ -23,7 +23,8 @@ export async function listPublishedBooks(
   const publishedBooks = await dbOrTx
     .select()
     .from(books)
-    .where(eq(books.status, "published"));
+    .where(eq(books.status, "published"))
+    .orderBy(asc(books.slug));
 
   if (publishedBooks.length === 0) {
     return [];
@@ -86,7 +87,7 @@ export async function getBookDetail(
   const bookRows = await dbOrTx
     .select()
     .from(books)
-    .where(eq(books.slug, slug))
+    .where(and(eq(books.slug, slug), eq(books.status, "published")))
     .limit(1);
 
   if (!bookRows || bookRows.length === 0) {

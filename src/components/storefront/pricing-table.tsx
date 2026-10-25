@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { BookSummary } from "@/modules/catalog/types";
+import { formatIdr } from "./book-card";
 
 export interface PricingTableProps {
   books?: BookSummary[];
@@ -94,26 +95,30 @@ export function PricingTable({
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-stretch">
         {/* Single Books */}
-        {singleBookOffers.map((item) => (
-          <div
-            key={item.slug}
-            className="flex flex-col justify-between rounded-xl border p-6 bg-white transition-all hover:border-gray-400"
-            style={{ borderColor: "#E5E0D5" }}
-          >
-            <div>
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block">
-                {item.target}
-              </span>
-              <h3 className="mt-1 text-lg font-bold" style={{ color: "#111113" }}>
-                {item.title}
-              </h3>
+        {singleBookOffers.map((item) => {
+          const matchedBook = books.find((b) => b.slug === item.slug);
+          const finalAmount = matchedBook?.activePriceIdr ?? item.amountIdr;
 
-              <div className="mt-4 mb-6">
-                <span className="text-2xl font-black" style={{ color: "#111113" }}>
-                  Rp {Number(item.amountIdr).toLocaleString("id-ID")}
+          return (
+            <div
+              key={item.slug}
+              className="flex flex-col justify-between rounded-xl border p-6 bg-white transition-all hover:border-gray-400"
+              style={{ borderColor: "#E5E0D5" }}
+            >
+              <div>
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block">
+                  {item.target}
                 </span>
-                <span className="text-xs text-gray-500 block">pembayaran 1 kali</span>
-              </div>
+                <h3 className="mt-1 text-lg font-bold" style={{ color: "#111113" }}>
+                  {item.title}
+                </h3>
+
+                <div className="mt-4 mb-6">
+                  <span className="text-2xl font-black" style={{ color: "#111113" }}>
+                    {formatIdr(finalAmount)}
+                  </span>
+                  <span className="text-xs text-gray-500 block">pembayaran 1 kali</span>
+                </div>
 
               <ul className="space-y-2 text-xs text-gray-600 mb-6 border-t pt-4" style={{ borderColor: "#E5E0D5" }}>
                 {item.features.map((feat, idx) => (
@@ -135,7 +140,8 @@ export function PricingTable({
               </Link>
             </div>
           </div>
-        ))}
+        );
+      })}
 
         {/* Bundle Tier Highlighted Card */}
         <div
@@ -171,7 +177,7 @@ export function PricingTable({
             <div className="mt-4 mb-6">
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-black" style={{ color: "#111113" }}>
-                  Rp {Number(bundlePrice).toLocaleString("id-ID")}
+                  {formatIdr(bundlePrice)}
                 </span>
                 <span className="text-xs line-through text-gray-400">
                   Rp 237.000
