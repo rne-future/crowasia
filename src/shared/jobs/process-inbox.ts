@@ -1,11 +1,12 @@
 import { and, eq, inArray, isNull, lt, lte, or, asc } from "drizzle-orm";
-import { db as defaultDb, type Database } from "@/shared/db/client";
+import { db as defaultDb } from "@/shared/db/client";
 import { webhookInbox } from "@/shared/db/schema/jobs";
 import {
   type InboxHandler,
   type WorkerOptions,
   type JobResult,
   type WebhookInboxRow,
+  type DbOrTx,
   DEFAULT_BASE_MS,
   DEFAULT_BATCH_SIZE,
   DEFAULT_LEASE_MS,
@@ -32,7 +33,7 @@ export function clearInboxHandlers(): void {
  * Uses FOR UPDATE SKIP LOCKED to prevent concurrent claim race conditions.
  */
 export async function processInbox(
-  dbOrTx: Database = defaultDb,
+  dbOrTx: DbOrTx = defaultDb,
   options: WorkerOptions = {}
 ): Promise<JobResult> {
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
@@ -41,16 +42,24 @@ export async function processInbox(
   const maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
   const now = options.now ? options.now() : new Date();
 
-  const runWithTx = async (tx: Database): Promise<WebhookInboxRow[]> => {
+  const runWithTx = async (tx: DbOrTx): Promise<WebhookInboxRow[]> => {
     const claimedRows = await tx
       .select()
       .from(webhookInbox)
       .where(
         and(
-          inArray(webhookInbox.status, ["pending", "retry"]),
           lt(webhookInbox.attempts, maxAttempts),
-          or(isNull(webhookInbox.leaseUntil), lt(webhookInbox.leaseUntil, now)),
-          lte(webhookInbox.nextAttemptAt, now)
+          or(
+            and(
+              inArray(webhookInbox.status, ["pending", "retry"]),
+              or(isNull(webhookInbox.leaseUntil), lt(webhookInbox.leaseUntil, now)),
+              lte(webhookInbox.nextAttemptAt, now)
+            ),
+            and(
+              eq(webhookInbox.status, "processing"),
+              lt(webhookInbox.leaseUntil, now)
+            )
+          )
         )
       )
       .orderBy(asc(webhookInbox.nextAttemptAt))
@@ -78,7 +87,7 @@ export async function processInbox(
 
   const claimedRows: WebhookInboxRow[] =
     typeof dbOrTx.transaction === "function"
-      ? await (dbOrTx.transaction as unknown as (cb: (tx: Database) => Promise<WebhookInboxRow[]>) => Promise<WebhookInboxRow[]>)(runWithTx)
+      ? await (dbOrTx.transaction as unknown as (cb: (tx: DbOrTx) => Promise<WebhookInboxRow[]>) => Promise<WebhookInboxRow[]>)(runWithTx)
       : await runWithTx(dbOrTx);
 
   if (!claimedRows || claimedRows.length === 0) {
@@ -95,10 +104,14 @@ export async function processInbox(
   let retriedCount = 0;
   let deadCount = 0;
 
-  const oldestEvent = claimedRows[0];
-  const oldestPendingAgeMs = oldestEvent?.createdAt
-    ? Math.max(0, now.getTime() - new Date(oldestEvent.createdAt).getTime())
-    : null;
+  const validCreatedTimes = claimedRows
+    .map((r) => (r.createdAt ? new Date(r.createdAt).getTime() : NaN))
+    .filter((t) => !Number.isNaN(t));
+
+  const oldestPendingAgeMs =
+    validCreatedTimes.length > 0
+      ? Math.max(0, now.getTime() - Math.min(...validCreatedTimes))
+      : null;
 
   for (const event of claimedRows) {
     if (event.status === "processed") {

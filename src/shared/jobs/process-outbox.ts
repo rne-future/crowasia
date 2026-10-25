@@ -1,11 +1,12 @@
 import { and, eq, inArray, isNull, lt, lte, or, asc } from "drizzle-orm";
-import { db as defaultDb, type Database } from "@/shared/db/client";
+import { db as defaultDb } from "@/shared/db/client";
 import { outboxJobs } from "@/shared/db/schema/jobs";
 import {
   type OutboxHandler,
   type WorkerOptions,
   type JobResult,
   type OutboxJobRow,
+  type DbOrTx,
   DEFAULT_BASE_MS,
   DEFAULT_BATCH_SIZE,
   DEFAULT_LEASE_MS,
@@ -33,7 +34,7 @@ export function clearOutboxHandlers(): void {
  * Preserves dedupe_key uniqueness and handles exponential backoff and dead lettering.
  */
 export async function processOutbox(
-  dbOrTx: Database = defaultDb,
+  dbOrTx: DbOrTx = defaultDb,
   options: WorkerOptions = {}
 ): Promise<JobResult> {
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
@@ -42,16 +43,24 @@ export async function processOutbox(
   const maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
   const now = options.now ? options.now() : new Date();
 
-  const runWithTx = async (tx: Database): Promise<OutboxJobRow[]> => {
+  const runWithTx = async (tx: DbOrTx): Promise<OutboxJobRow[]> => {
     const claimedRows = await tx
       .select()
       .from(outboxJobs)
       .where(
         and(
-          inArray(outboxJobs.status, ["pending", "retry"]),
           lt(outboxJobs.attempts, maxAttempts),
-          or(isNull(outboxJobs.leaseUntil), lt(outboxJobs.leaseUntil, now)),
-          lte(outboxJobs.nextAttemptAt, now)
+          or(
+            and(
+              inArray(outboxJobs.status, ["pending", "retry"]),
+              or(isNull(outboxJobs.leaseUntil), lt(outboxJobs.leaseUntil, now)),
+              lte(outboxJobs.nextAttemptAt, now)
+            ),
+            and(
+              eq(outboxJobs.status, "processing"),
+              lt(outboxJobs.leaseUntil, now)
+            )
+          )
         )
       )
       .orderBy(asc(outboxJobs.nextAttemptAt))
@@ -79,7 +88,7 @@ export async function processOutbox(
 
   const claimedRows: OutboxJobRow[] =
     typeof dbOrTx.transaction === "function"
-      ? await (dbOrTx.transaction as unknown as (cb: (tx: Database) => Promise<OutboxJobRow[]>) => Promise<OutboxJobRow[]>)(runWithTx)
+      ? await (dbOrTx.transaction as unknown as (cb: (tx: DbOrTx) => Promise<OutboxJobRow[]>) => Promise<OutboxJobRow[]>)(runWithTx)
       : await runWithTx(dbOrTx);
 
   if (!claimedRows || claimedRows.length === 0) {
@@ -96,10 +105,14 @@ export async function processOutbox(
   let retriedCount = 0;
   let deadCount = 0;
 
-  const oldestJob = claimedRows[0];
-  const oldestPendingAgeMs = oldestJob?.createdAt
-    ? Math.max(0, now.getTime() - new Date(oldestJob.createdAt).getTime())
-    : null;
+  const validCreatedTimes = claimedRows
+    .map((r) => (r.createdAt ? new Date(r.createdAt).getTime() : NaN))
+    .filter((t) => !Number.isNaN(t));
+
+  const oldestPendingAgeMs =
+    validCreatedTimes.length > 0
+      ? Math.max(0, now.getTime() - Math.min(...validCreatedTimes))
+      : null;
 
   for (const job of claimedRows) {
     if (job.status === "processed" || job.status === "completed") {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { calculateBackoff } from "@/shared/jobs/types";
+import { calculateBackoff, type DbTransaction, type DbOrTx } from "@/shared/jobs/types";
 import { processInbox, runInboxWorker } from "@/shared/jobs/process-inbox";
 import { processOutbox, runOutboxWorker } from "@/shared/jobs/process-outbox";
 import { enqueueOutboxJob } from "@/shared/jobs/outbox-worker";
@@ -111,7 +111,17 @@ describe("Worker Subsystem (TDD)", () => {
                   for: vi.fn().mockImplementation((lockMode, options) => {
                     if (lockMode === "update") querySpies.forUpdateCalled = true;
                     if (options?.skipLocked) querySpies.skipLockedCalled = true;
-                    return Promise.resolve(mockEvents.filter((e) => e.status === "pending" || e.status === "retry"));
+                    return Promise.resolve(
+                      mockEvents.filter((e) => {
+                        const isPendingOrRetry =
+                          (e.status === "pending" || e.status === "retry") &&
+                          (!e.leaseUntil || e.leaseUntil < new Date()) &&
+                          (!e.nextAttemptAt || e.nextAttemptAt <= new Date());
+                        const isExpiredProcessing =
+                          e.status === "processing" && e.leaseUntil && e.leaseUntil < new Date();
+                        return (isPendingOrRetry || isExpiredProcessing) && (e.attempts ?? 0) < 8;
+                      })
+                    );
                   }),
                 })),
               })),
@@ -120,9 +130,24 @@ describe("Worker Subsystem (TDD)", () => {
         })),
         update: vi.fn().mockImplementation((_table) => ({
           set: vi.fn().mockImplementation((setValues) => ({
-            where: vi.fn().mockImplementation((_whereCondition) => {
+            where: vi.fn().mockImplementation((whereCondition) => {
+              const ids: string[] = [];
+              const walk = (item: any) => {
+                if (!item) return;
+                if (Array.isArray(item)) {
+                  item.forEach(walk);
+                } else if (item.value !== undefined && typeof item.value === "string") {
+                  ids.push(item.value);
+                } else if (item.queryChunks) {
+                  walk(item.queryChunks);
+                }
+              };
+              walk(whereCondition);
+
               for (const event of mockEvents) {
-                Object.assign(event, setValues);
+                if (ids.length === 0 || ids.includes(event.id)) {
+                  Object.assign(event, setValues);
+                }
               }
               return Promise.resolve();
             }),
@@ -195,6 +220,82 @@ describe("Worker Subsystem (TDD)", () => {
       expect(result.processed).toBe(0);
       expect(result.claimed).toBe(0);
     });
+
+    it("reclaims expired processing leases after worker crash", async () => {
+      mockEvents = [
+        {
+          id: "inbox-crashed",
+          providerEnv: "midtrans_production",
+          eventKey: "evt_crashed_123",
+          payloadHash: "hash_crashed",
+          normalizedJson: { eventType: "payment_success" },
+          status: "processing",
+          attempts: 1,
+          nextAttemptAt: new Date(Date.now() - 60000),
+          leaseUntil: new Date(Date.now() - 10000), // Expired 10s ago
+          errorCode: null,
+          createdAt: new Date(Date.now() - 120000),
+          updatedAt: new Date(Date.now() - 60000),
+        },
+      ];
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      const result = await processInbox(mockDb, {
+        handlers: { midtrans_production: handler },
+      });
+
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "inbox-crashed" })
+      );
+      expect(result.claimed).toBe(1);
+      expect(result.processed).toBe(1);
+      expect(mockEvents[0].status).toBe("processed");
+      expect(mockEvents[0].leaseUntil).toBeNull();
+    });
+
+    it("calculates oldestPendingAgeMs from oldest createdAt in claimed batch", async () => {
+      const now = Date.now();
+      mockEvents = [
+        {
+          id: "inbox-newer",
+          providerEnv: "midtrans_production",
+          eventKey: "evt_newer",
+          payloadHash: "hash_newer",
+          normalizedJson: {},
+          status: "pending",
+          attempts: 0,
+          nextAttemptAt: new Date(now - 10000), // earlier nextAttemptAt -> claimedRows[0]
+          leaseUntil: null,
+          errorCode: null,
+          createdAt: new Date(now - 2000), // 2 seconds old
+          updatedAt: new Date(),
+        },
+        {
+          id: "inbox-older",
+          providerEnv: "midtrans_production",
+          eventKey: "evt_older",
+          payloadHash: "hash_older",
+          normalizedJson: {},
+          status: "pending",
+          attempts: 0,
+          nextAttemptAt: new Date(now - 5000), // later nextAttemptAt -> claimedRows[1]
+          leaseUntil: null,
+          errorCode: null,
+          createdAt: new Date(now - 60000), // 60 seconds old
+          updatedAt: new Date(),
+        },
+      ];
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      const result = await processInbox(mockDb, {
+        handlers: { midtrans_production: handler },
+      });
+
+      expect(result.claimed).toBe(2);
+      expect(result.processed).toBe(2);
+      // oldestPendingAgeMs must reflect the 60s old item, NOT the 2s old first item
+      expect(result.oldestPendingAgeMs).toBeGreaterThanOrEqual(59000);
+    });
   });
 
   describe("processOutbox", () => {
@@ -238,7 +339,17 @@ describe("Worker Subsystem (TDD)", () => {
                   for: vi.fn().mockImplementation((lockMode, options) => {
                     if (lockMode === "update") querySpies.forUpdateCalled = true;
                     if (options?.skipLocked) querySpies.skipLockedCalled = true;
-                    return Promise.resolve(mockJobs.filter((j) => j.status === "pending" || j.status === "retry"));
+                    return Promise.resolve(
+                      mockJobs.filter((j) => {
+                        const isPendingOrRetry =
+                          (j.status === "pending" || j.status === "retry") &&
+                          (!j.leaseUntil || j.leaseUntil < new Date()) &&
+                          (!j.nextAttemptAt || j.nextAttemptAt <= new Date());
+                        const isExpiredProcessing =
+                          j.status === "processing" && j.leaseUntil && j.leaseUntil < new Date();
+                        return (isPendingOrRetry || isExpiredProcessing) && (j.attempts ?? 0) < 8;
+                      })
+                    );
                   }),
                 })),
               })),
@@ -247,9 +358,24 @@ describe("Worker Subsystem (TDD)", () => {
         })),
         update: vi.fn().mockImplementation((_table) => ({
           set: vi.fn().mockImplementation((setValues) => ({
-            where: vi.fn().mockImplementation((_whereCondition) => {
+            where: vi.fn().mockImplementation((whereCondition) => {
+              const ids: string[] = [];
+              const walk = (item: any) => {
+                if (!item) return;
+                if (Array.isArray(item)) {
+                  item.forEach(walk);
+                } else if (item.value !== undefined && typeof item.value === "string") {
+                  ids.push(item.value);
+                } else if (item.queryChunks) {
+                  walk(item.queryChunks);
+                }
+              };
+              walk(whereCondition);
+
               for (const job of mockJobs) {
-                Object.assign(job, setValues);
+                if (ids.length === 0 || ids.includes(job.id)) {
+                  Object.assign(job, setValues);
+                }
               }
               return Promise.resolve();
             }),
@@ -330,6 +456,83 @@ describe("Worker Subsystem (TDD)", () => {
       expect(mockJobs[0].status).toBe("dead");
       expect(mockJobs[0].leaseUntil).toBeNull();
     });
+
+    it("reclaims expired processing leases after worker crash", async () => {
+      mockJobs = [
+        {
+          id: "job-crashed",
+          kind: "content.published",
+          aggregateId: "variant-crashed",
+          dedupeKey: "content_published_variant_crashed",
+          payloadJson: { revisionId: "rev-crashed" },
+          status: "processing",
+          attempts: 1,
+          nextAttemptAt: new Date(Date.now() - 60000),
+          leaseUntil: new Date(Date.now() - 10000), // Expired 10s ago
+          completedAt: null,
+          createdAt: new Date(Date.now() - 120000),
+          updatedAt: new Date(Date.now() - 60000),
+        },
+      ];
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      const result = await processOutbox(mockDb, {
+        handlers: { "content.published": handler },
+      });
+
+      expect(handler).toHaveBeenCalledWith(
+        expect.objectContaining({ dedupeKey: "content_published_variant_crashed" })
+      );
+      expect(result.claimed).toBe(1);
+      expect(result.processed).toBe(1);
+      expect(mockJobs[0].status).toBe("processed");
+      expect(mockJobs[0].completedAt).toBeInstanceOf(Date);
+      expect(mockJobs[0].leaseUntil).toBeNull();
+    });
+
+    it("calculates oldestPendingAgeMs from oldest createdAt in claimed batch", async () => {
+      const now = Date.now();
+      mockJobs = [
+        {
+          id: "job-newer",
+          kind: "content.published",
+          aggregateId: "v1",
+          dedupeKey: "k1",
+          payloadJson: {},
+          status: "pending",
+          attempts: 0,
+          nextAttemptAt: new Date(now - 10000), // earlier nextAttemptAt -> claimedRows[0]
+          leaseUntil: null,
+          completedAt: null,
+          createdAt: new Date(now - 3000), // 3 seconds old
+          updatedAt: new Date(),
+        },
+        {
+          id: "job-older",
+          kind: "content.published",
+          aggregateId: "v2",
+          dedupeKey: "k2",
+          payloadJson: {},
+          status: "pending",
+          attempts: 0,
+          nextAttemptAt: new Date(now - 5000), // later nextAttemptAt -> claimedRows[1]
+          leaseUntil: null,
+          completedAt: null,
+          createdAt: new Date(now - 80000), // 80 seconds old
+          updatedAt: new Date(),
+        },
+      ];
+
+      const handler = vi.fn().mockResolvedValue(undefined);
+      const result = await processOutbox(mockDb, {
+        handlers: { "content.published": handler },
+      });
+
+      expect(result.claimed).toBe(2);
+      expect(result.processed).toBe(2);
+      // oldestPendingAgeMs must reflect the 80s old item, NOT the 3s old first item
+      expect(result.oldestPendingAgeMs).toBeGreaterThanOrEqual(79000);
+    });
   });
 
   describe("enqueueOutboxJob", () => {
@@ -379,6 +582,36 @@ describe("Worker Subsystem (TDD)", () => {
 
       expect(onConflictDoNothingSpy).toHaveBeenCalled();
     });
+
+    it("accepts PgTransaction from db.transaction and runs within transaction", async () => {
+      const inserted: any[] = [];
+      const dummyPgTransaction = {
+        insert: vi.fn().mockImplementation((table) => ({
+          values: vi.fn().mockImplementation((vals) => ({
+            onConflictDoNothing: vi.fn().mockImplementation(() => {
+              inserted.push({ table, vals });
+              return Promise.resolve();
+            }),
+          })),
+        })),
+      };
+
+      // Type-level assertion & runtime invocation: ensures DbTransaction can be passed directly
+      const typeSafeInvocation = async (tx: DbTransaction) => {
+        await enqueueOutboxJob(tx, {
+          kind: "catalog.sync",
+          aggregateId: "book-tx",
+          dedupeKey: "catalog_sync_tx",
+          payload: { inTransaction: true },
+        });
+      };
+
+      await typeSafeInvocation(dummyPgTransaction as unknown as DbTransaction);
+
+      expect(dummyPgTransaction.insert).toHaveBeenCalledWith(outboxJobs);
+      expect(inserted.length).toBe(1);
+      expect(inserted[0].vals.dedupeKey).toBe("catalog_sync_tx");
+    });
   });
 
   describe("insertInboxEvent", () => {
@@ -426,6 +659,35 @@ describe("Worker Subsystem (TDD)", () => {
       });
 
       expect(onConflictDoNothingSpy).toHaveBeenCalled();
+    });
+
+    it("accepts PgTransaction from db.transaction and runs within transaction", async () => {
+      const inserted: any[] = [];
+      const dummyPgTransaction = {
+        insert: vi.fn().mockImplementation((table) => ({
+          values: vi.fn().mockImplementation((vals) => ({
+            onConflictDoNothing: vi.fn().mockImplementation(() => {
+              inserted.push({ table, vals });
+              return Promise.resolve();
+            }),
+          })),
+        })),
+      };
+
+      const typeSafeInvocation = async (tx: DbTransaction) => {
+        await insertInboxEvent(tx, {
+          providerEnv: "midtrans_production",
+          eventKey: "evt_tx_1",
+          payloadHash: "hash_tx_1",
+          normalizedJson: { inTransaction: true },
+        });
+      };
+
+      await typeSafeInvocation(dummyPgTransaction as unknown as DbTransaction);
+
+      expect(dummyPgTransaction.insert).toHaveBeenCalledWith(webhookInbox);
+      expect(inserted.length).toBe(1);
+      expect(inserted[0].vals.eventKey).toBe("evt_tx_1");
     });
   });
 

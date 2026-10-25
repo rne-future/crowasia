@@ -1,4 +1,8 @@
 import type { webhookInbox, outboxJobs } from "@/shared/db/schema/jobs";
+import type { Database } from "@/shared/db/client";
+
+export type DbTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+export type DbOrTx = Database | DbTransaction;
 
 export type InboxStatus =
   | "pending"

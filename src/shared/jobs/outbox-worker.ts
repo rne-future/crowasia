@@ -1,4 +1,4 @@
-import { db as defaultDb, type Database } from "@/shared/db/client";
+import { db as defaultDb } from "@/shared/db/client";
 import { outboxJobs } from "@/shared/db/schema/jobs";
 import {
   processOutbox,
@@ -7,7 +7,7 @@ import {
   getOutboxHandler,
   clearOutboxHandlers,
 } from "./process-outbox";
-import type { WorkerOptions, JobResult } from "./types";
+import type { WorkerOptions, JobResult, DbOrTx } from "./types";
 
 export interface EnqueueOutboxJobParams {
   kind: string;
@@ -21,7 +21,7 @@ export interface EnqueueOutboxJobParams {
  * Duplicate dedupeKey is safely ignored (idempotent / no side-effect).
  */
 export async function enqueueOutboxJob(
-  txOrDb: Database = defaultDb,
+  txOrDb: DbOrTx = defaultDb,
   params: EnqueueOutboxJobParams
 ): Promise<void> {
   await txOrDb

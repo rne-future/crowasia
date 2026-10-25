@@ -1,4 +1,4 @@
-import { db as defaultDb, type Database } from "@/shared/db/client";
+import { db as defaultDb } from "@/shared/db/client";
 import { webhookInbox } from "@/shared/db/schema/jobs";
 import {
   processInbox,
@@ -7,7 +7,7 @@ import {
   getInboxHandler,
   clearInboxHandlers,
 } from "./process-inbox";
-import type { WorkerOptions, JobResult } from "./types";
+import type { WorkerOptions, JobResult, DbOrTx } from "./types";
 
 export interface InsertInboxEventParams {
   providerEnv: string;
@@ -21,7 +21,7 @@ export interface InsertInboxEventParams {
  * Duplicate providerEnv + eventKey is safely ignored (idempotent / no side-effect).
  */
 export async function insertInboxEvent(
-  txOrDb: Database = defaultDb,
+  txOrDb: DbOrTx = defaultDb,
   params: InsertInboxEventParams
 ): Promise<void> {
   await txOrDb
