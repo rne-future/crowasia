@@ -58,6 +58,13 @@ export interface CheckoutResult {
   idempotentReplay?: boolean;
 }
 
+export interface SettlementResult {
+  settled: boolean;
+  alreadySettled?: boolean;
+  orderId: string;
+  grantsCount?: number;
+}
+
 export interface OrderItemDto {
   bookId: string;
   bookTitle: string;

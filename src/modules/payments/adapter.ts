@@ -281,6 +281,7 @@ export class MayarClient {
       merchantId,
       invoiceId: invoice.id,
       transactionId: transaction.id,
+      orderId: orderSnapshot.orderId,
       payableIdr: invoice.amount,
       amount: invoice.amount,
       currency: "IDR",
