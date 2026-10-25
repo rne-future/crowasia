@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { env } from "@/shared/config/env";
 import { runInboxWorker } from "@/shared/jobs/process-inbox";
 import { runOutboxWorker } from "@/shared/jobs/process-outbox";
+import { registerMayarInboxHandler } from "@/modules/payments/inbox-handler";
+import { reconcileOpenOrders } from "@/modules/payments/reconcile";
 
 async function handleCronRequest(request: Request): Promise<Response> {
   const authHeader = request.headers.get("authorization");
@@ -14,8 +16,10 @@ async function handleCronRequest(request: Request): Promise<Response> {
   const startTime = Date.now();
 
   try {
+    registerMayarInboxHandler();
     const inboxResult = await runInboxWorker();
     const outboxResult = await runOutboxWorker();
+    const reconcileResult = await reconcileOpenOrders();
     const durationMs = Date.now() - startTime;
 
     // Structured logging: only job counts and latency metrics, strictly zero PII
@@ -37,6 +41,12 @@ async function handleCronRequest(request: Request): Promise<Response> {
           dead: outboxResult.dead,
           oldestPendingAgeMs: outboxResult.oldestPendingAgeMs,
         },
+        reconcile: {
+          scanned: reconcileResult.scannedCount,
+          settled: reconcileResult.settledCount,
+          expired: reconcileResult.expiredCount,
+          errors: reconcileResult.errors.length,
+        },
       })
     );
 
@@ -47,6 +57,7 @@ async function handleCronRequest(request: Request): Promise<Response> {
         durationMs,
         inbox: inboxResult,
         outbox: outboxResult,
+        reconcile: reconcileResult,
       },
       { status: 200 }
     );
