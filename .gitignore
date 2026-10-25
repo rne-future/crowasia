@@ -15,6 +15,7 @@ out/
 .agents/
 books/
 docs/
+.creds/
 
 # Build
 dist/
