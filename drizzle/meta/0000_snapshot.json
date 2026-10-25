@@ -3107,6 +3107,7 @@
         "processing",
         "retry",
         "completed",
+        "processed",
         "failed",
         "dead"
       ]

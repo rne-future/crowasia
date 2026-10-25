@@ -5,7 +5,7 @@ CREATE TYPE "public"."tier_status" AS ENUM('active', 'inactive', 'archived');-->
 CREATE TYPE "public"."order_status" AS ENUM('pending', 'paid', 'expired', 'failed', 'cancelled');--> statement-breakpoint
 CREATE TYPE "public"."refund_record_status" AS ENUM('pending', 'confirmed', 'failed');--> statement-breakpoint
 CREATE TYPE "public"."refund_status" AS ENUM('none', 'partial', 'full', 'review');--> statement-breakpoint
-CREATE TYPE "public"."job_status" AS ENUM('pending', 'processing', 'retry', 'completed', 'failed', 'dead');--> statement-breakpoint
+CREATE TYPE "public"."job_status" AS ENUM('pending', 'processing', 'retry', 'completed', 'processed', 'failed', 'dead');--> statement-breakpoint
 CREATE TYPE "public"."webhook_status" AS ENUM('pending', 'processing', 'retry', 'processed', 'rejected', 'dead');--> statement-breakpoint
 CREATE TYPE "public"."media_kind" AS ENUM('pdf', 'cover', 'poster');--> statement-breakpoint
 CREATE TYPE "public"."media_status" AS ENUM('pending', 'ready', 'failed');--> statement-breakpoint

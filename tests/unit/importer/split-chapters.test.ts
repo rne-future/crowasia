@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { splitBook } from "@/content/importer/split-chapters";
 
 describe("splitBook", () => {
-  it("splits book-1 id/standar into exactly 15 chapters (ch-0..ch-14)", () => {
+  const hasBooks = existsSync("books/id/standar/book-1.md");
+
+  it.skipIf(!hasBooks)("splits book-1 id/standar into exactly 15 chapters (ch-0..ch-14)", () => {
     const source = readFileSync("books/id/standar/book-1.md", "utf-8");
     const chapters = splitBook(source, "book-1");
 
@@ -34,14 +36,14 @@ describe("splitBook", () => {
     expect(chapters[14].endLine).toBe(978);
   });
 
-  it("preserves frontmatter as book-level metadata, not a chapter", () => {
+  it.skipIf(!hasBooks)("preserves frontmatter as book-level metadata, not a chapter", () => {
     const source = readFileSync("books/id/standar/book-1.md", "utf-8");
     const chapters = splitBook(source, "book-1");
     expect(chapters[0].title).not.toContain("Mahir Memimpin Tim");
     expect(chapters[0].startLine).toBeGreaterThan(1);
   });
 
-  it("skips Daftar Isi H2 as chapter but uses links for validation", () => {
+  it.skipIf(!hasBooks)("skips Daftar Isi H2 as chapter but uses links for validation", () => {
     const source = readFileSync("books/id/standar/book-1.md", "utf-8");
     const chapters = splitBook(source, "book-1");
     const slugs = chapters.map((c) => c.slug);
@@ -55,7 +57,7 @@ describe("splitBook", () => {
     }
   });
 
-  it("ch-14 includes Lampiran + Rujukan + closing content", () => {
+  it.skipIf(!hasBooks)("ch-14 includes Lampiran + Rujukan + closing content", () => {
     const source = readFileSync("books/id/standar/book-1.md", "utf-8");
     const rawLines = source.split(/\r?\n/);
     const totalLines =
@@ -71,7 +73,7 @@ describe("splitBook", () => {
     expect(ch14.endLine).toBe(totalLines);
   });
 
-  it("splits all 9 variants into 15 chapters each", () => {
+  it.skipIf(!hasBooks)("splits all 9 variants into 15 chapters each", () => {
     const variants = [
       { path: "books/id/standar/book-1.md", bookId: "book-1" },
       { path: "books/id/casual/book-1.md", bookId: "book-1" },

@@ -1,12 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import {
   generateManifest,
   loadManifest,
 } from "@/content/importer/manifest-generator";
 
 describe("generateManifest", () => {
-  it("produces same checklist_item_ids as reference for matching chapters", () => {
+  const hasBooks = existsSync("books/id/standar/book-1.md");
+
+  it.skipIf(!hasBooks)("produces same checklist_item_ids as reference for matching chapters", () => {
     const refManifest = loadManifest("book-1");
     const casualSource = readFileSync("books/id/casual/book-1.md", "utf-8");
     const generated = generateManifest(casualSource, "book-1", refManifest);
@@ -21,7 +23,7 @@ describe("generateManifest", () => {
     }
   });
 
-  it("correctly maps line ranges for different variant", () => {
+  it.skipIf(!hasBooks)("correctly maps line ranges for different variant", () => {
     const refManifest = loadManifest("book-1");
     const enSource = readFileSync("books/en/book-1.md", "utf-8");
     const generated = generateManifest(enSource, "book-1", refManifest, {
@@ -50,7 +52,7 @@ describe("generateManifest", () => {
     ).toThrow(/chapter count|15 chapters/i);
   });
 
-  it("flags mismatch if checklist item count per chapter differs from reference", () => {
+  it.skipIf(!hasBooks)("flags mismatch if checklist item count per chapter differs from reference", () => {
     const refManifest = loadManifest("book-1");
     // Modify ch-3 source to add an extra unexpected checklist item
     const standarSource = readFileSync("books/id/standar/book-1.md", "utf-8");
@@ -64,7 +66,7 @@ describe("generateManifest", () => {
     ).toThrow(/checklist item count mismatch/i);
   });
 
-  it("generates consistent checklist UUIDs across all 9 variants", () => {
+  it.skipIf(!hasBooks)("generates consistent checklist UUIDs across all 9 variants", () => {
     const variants = [
       { path: "books/id/standar/book-1.md", bookId: "book-1" },
       { path: "books/id/casual/book-1.md", bookId: "book-1" },
