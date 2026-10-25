@@ -39,5 +39,12 @@ export async function authMiddleware(
   request: NextRequest
 ): Promise<NextResponse> {
   const intlResponse = intlMiddleware(request);
-  return updateSession(request, intlResponse);
+  const response = await updateSession(request, intlResponse);
+
+  // Enforce private, no-store on interactive reader routes
+  if (request.nextUrl.pathname.includes("/read/")) {
+    response.headers.set("Cache-Control", "private, no-store");
+  }
+
+  return response;
 }

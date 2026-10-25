@@ -32,4 +32,11 @@ describe("Auth Middleware", () => {
 
     expect(response).toBeInstanceOf(NextResponse);
   });
+
+  it("authMiddleware sets private, no-store Cache-Control on reader routes", async () => {
+    const request = new NextRequest("https://crowasia.test/id/read/mahir-memimpin-tim/ch-2");
+    const response = await authMiddleware(request);
+
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  });
 });
